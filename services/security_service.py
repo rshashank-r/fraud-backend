@@ -16,7 +16,7 @@ class SecurityService:
             prefix, suffix = sha1_password[:5], sha1_password[5:]
             
             # FIX: Correct URL formatting
-            url = f"https://haveibeenpwned.com/api/v3/breachedaccount{prefix}"
+            url = f"https://api.pwnedpasswords.com/range/{prefix}"
             
             res = requests.get(url, timeout=2) 
             
