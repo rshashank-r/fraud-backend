@@ -1,6 +1,7 @@
 import geoip2.database
 import os
-from flask import request # Import Request
+import requests
+from flask import request
 
 class GeoService:
     _reader = None
@@ -19,7 +20,7 @@ class GeoService:
                 except Exception as e:
                     print(f"❌ Failed to load GeoLite2 DB: {e}")
             else:
-                print(f"⚠️ GeoLite2-City.mmdb not found at {db_path}. Geo-location disabled.")
+                print(f"⚠️ GeoLite2-City.mmdb not found at {db_path}. Will use API fallback.")
         return cls._reader
 
     @staticmethod
@@ -33,36 +34,62 @@ class GeoService:
         return request.remote_addr
 
     @staticmethod
+    def get_ip_details_from_api(ip_address):
+        """Fallback: Get details from external API"""
+        try:
+            url = f"http://ip-api.com/json/{ip_address}?fields=status,message,country,countryCode,city,lat,lon,isp,hosting,proxy"
+            response = requests.get(url, timeout=3) # Short timeout for fallback
+            data = response.json()
+
+            if data.get('status') == 'fail':
+                return None
+            
+            is_vpn = data.get('hosting', False) or data.get('proxy', False)
+            
+            return {
+                "country": data.get('countryCode'),
+                "city": data.get('city'),
+                "lat": data.get('lat'),
+                "lon": data.get('lon'),
+                "is_vpn": is_vpn,
+                "source": "API"
+            }
+        except Exception as e:
+            print(f"❌ GeoAPI Fallback Error: {e}")
+            return None
+
+    @staticmethod
     def get_ip_details(ip_address):
         """
-        Returns Country and Coordinates for a given IP.
+        Returns Country and Coordinates. Tries Local DB first, then API.
         """
-        # 1. Handle Localhost (No Geo Data)
+        # 1. Handle Localhost
         if ip_address in ['127.0.0.1', '::1']:
             return {"country": "LO", "city": "Localhost", "lat": 0.0, "lon": 0.0, "is_vpn": False}
 
+        # 2. Try Local DB
         reader = GeoService.get_reader()
-        if not reader: 
-            return None 
+        if reader:
+            try:
+                response = reader.city(ip_address)
+                is_vpn = False
+                if response.traits.is_hosting_provider or response.traits.is_proxy:
+                    is_vpn = True
+                    
+                return {
+                    "country": response.country.iso_code,
+                    "city": response.city.name,
+                    "lat": response.location.latitude,
+                    "lon": response.location.longitude,
+                    "is_vpn": is_vpn,
+                    "source": "DB"
+                }
+            except Exception:
+                # IP not found in DB or DB error -> Fallthrough to API
+                pass
 
-        try:
-            response = reader.city(ip_address)
-            
-            # 2. Simple VPN Detection Heuristic
-            is_vpn = False
-            if response.traits.is_hosting_provider or response.traits.is_proxy:
-                is_vpn = True
-                
-            return {
-                "country": response.country.iso_code,
-                "city": response.city.name,
-                "lat": response.location.latitude,
-                "lon": response.location.longitude,
-                "is_vpn": is_vpn
-            }
-        except Exception as e:
-            # IP not found in DB
-            return None
+        # 3. Fallback to API
+        return GeoService.get_ip_details_from_api(ip_address)
 
     @staticmethod
     def get_location_name(ip_address):
