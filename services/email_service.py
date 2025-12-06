@@ -1,4 +1,6 @@
-from flask_mail import Mail, Message
+import sib_api_v3_sdk
+from sib_api_v3_sdk.rest import ApiException
+from flask import current_app
 import random
 import os
 import threading
@@ -55,146 +57,135 @@ def create_html_email(title, body_content, details=None):
     </html>
     """
 
+# --- BREVO HELPER ---
+def send_brevo_email(app_instance, to_email, subject, html_content):
+    """
+    Sends an email using Brevo (Sendinblue) API.
+    """
+    try:
+        with app_instance.app_context():
+            # Configure API key
+            configuration = sib_api_v3_sdk.Configuration()
+            configuration.api_key['api-key'] = current_app.config.get('BREVO_API_KEY')
+
+            api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+            
+            sender = {"name": "FraudGuard Security", "email": os.environ.get('MAIL_USERNAME', 'no-reply@fraudguard.com')}
+            to = [{"email": to_email}]
+            
+            send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
+                to=to,
+                sender=sender,
+                subject=subject,
+                html_content=html_content
+            )
+
+            api_response = api_instance.send_transac_email(send_smtp_email)
+            print(f"✅ Email sent to {to_email}. Message ID: {api_response.message_id}")
+            return True
+    except ApiException as e:
+        print(f"❌ Brevo API Exception: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Failed to send email: {e}")
+        return False
+
 # --- 1. OTP EMAIL (Unified) ---
 def send_email_otp(app_instance, recipient, otp_code, context="LOGIN", extra_info=""):
     """
     Sends OTP for Login or Transaction verification.
-    If context != "LOGIN", it is treated as 'amount' and extra_info as 'receiver'.
     """
-    try:
-        with app_instance.app_context():
-            mail = Mail(app_instance)
-            
-            if context == "LOGIN":
-                subject = "🔐 Account Verification Code"
-                title = "Verify Your Login"
-                body = f"<p>A login attempt was detected. Use the code below to complete your sign-in.</p><div class='otp-code'>{otp_code}</div>"
-                details = {"Type": "Login Verification", "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-            else:
-                # Transaction context (context=amount, extra_info=receiver)
-                amount = context
-                receiver = extra_info
-                
-                subject = f"🔐 Verify Transaction: ₹{amount}"
-                title = "Confirm Transaction"
-                body = f"<p>Did you attempt to send <b>₹{amount}</b> to <b>{receiver}</b>?</p><div class='otp-code'>{otp_code}</div>"
-                details = {
-                    "Amount": f"₹{amount}",
-                    "Receiver": receiver,
-                    "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                }
+    if context == "LOGIN":
+        subject = "🔐 Account Verification Code"
+        title = "Verify Your Login"
+        body = f"<p>A login attempt was detected. Use the code below to complete your sign-in.</p><div class='otp-code'>{otp_code}</div>"
+        details = {"Type": "Login Verification", "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+    else:
+        # Transaction context (context=amount, extra_info=receiver)
+        amount = context
+        receiver = extra_info
+        
+        subject = f"🔐 Verify Transaction: ₹{amount}"
+        title = "Confirm Transaction"
+        body = f"<p>Did you attempt to send <b>₹{amount}</b> to <b>{receiver}</b>?</p><div class='otp-code'>{otp_code}</div>"
+        details = {
+            "Amount": f"₹{amount}",
+            "Receiver": receiver,
+            "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
 
-            msg = Message(subject, sender=os.environ.get('MAIL_USERNAME', 'no-reply@fraudguard.com'), recipients=[recipient])
-            msg.html = create_html_email(title, body, details)
-            mail.send(msg)
-            print(f"✅ OTP Email Sent to {recipient}")
-    except Exception as e:
-        print(f"❌ Failed to send OTP email: {e}")
+    html_content = create_html_email(title, body, details)
+    send_brevo_email(app_instance, recipient, subject, html_content)
 
 # --- 2. CRITICAL FRAUD ALERT ---
 def send_fraud_alert(app_instance, recipient, tx_details):
-    try:
-        with app_instance.app_context():
-            mail = Mail(app_instance)
-            msg = Message(
-                f"🚨 FRAUD ALERT: blocked ₹{tx_details.get('amount')}",
-                sender=os.environ.get('MAIL_USERNAME', 'no-reply@fraudguard.com'),
-                recipients=[recipient]
-            )
-            
-            body = """
-            <div class='alert-box'>
-                <b>Transaction Blocked</b><br/>
-                We prevented a suspicious transaction on your account.
-            </div>
-            """
-            
-            details = {
-                "Amount": f"₹{tx_details.get('amount')}",
-                "Status": "BLOCKED",
-                "Reason": tx_details.get('reason'),
-                "Risk Score": f"{tx_details.get('risk_score'):.2f} / 1.00",
-                "Location": tx_details.get('location', 'Unknown'),
-                "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
+    subject = f"🚨 FRAUD ALERT: blocked ₹{tx_details.get('amount')}"
+    
+    body = """
+    <div class='alert-box'>
+        <b>Transaction Blocked</b><br/>
+        We prevented a suspicious transaction on your account.
+    </div>
+    """
+    
+    details = {
+        "Amount": f"₹{tx_details.get('amount')}",
+        "Status": "BLOCKED",
+        "Reason": tx_details.get('reason'),
+        "Risk Score": f"{tx_details.get('risk_score'):.2f} / 1.00",
+        "Location": tx_details.get('location', 'Unknown'),
+        "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
 
-            msg.html = create_html_email("Security Alert", body, details)
-            mail.send(msg)
-    except Exception as e:
-        print(f"❌ Failed to send Fraud Alert: {e}")
+    html_content = create_html_email("Security Alert", body, details)
+    send_brevo_email(app_instance, recipient, subject, html_content)
 
 # --- 3. NEW DEVICE ALERT ---
 def send_new_device_alert(app_instance, recipient, ip_address, device_fingerprint, location="Unknown"):
-    try:
-        with app_instance.app_context():
-            mail = Mail(app_instance)
-            msg = Message(
-                'New Device Login Detected',
-                sender=os.environ.get('MAIL_USERNAME', 'no-reply@fraudguard.com'),
-                recipients=[recipient]
-            )
-            body = "<p>A new device successfully logged into your FraudGuard account.</p>"
-            details = {
-                "IP Address": ip_address,
-                "Location": location,
-                "Device": device_fingerprint[:20] + "...",
-                "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-            msg.html = create_html_email("New Login", body, details)
-            mail.send(msg)
-    except Exception as e:
-        print(f"❌ Failed to send Device Alert: {e}")
+    subject = 'New Device Login Detected'
+    body = "<p>A new device successfully logged into your FraudGuard account.</p>"
+    details = {
+        "IP Address": ip_address,
+        "Location": location,
+        "Device": device_fingerprint[:20] + "...",
+        "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    html_content = create_html_email("New Login", body, details)
+    send_brevo_email(app_instance, recipient, subject, html_content)
 
 # --- 3a. LOGIN SUCCESS EMAIL ---
 def send_login_success_email(app_instance, recipient, ip_address, location="Unknown"):
-    try:
-        with app_instance.app_context():
-            mail = Mail(app_instance)
-            msg = Message(
-                '✅ Successful Login Alert',
-                sender=os.environ.get('MAIL_USERNAME', 'no-reply@fraudguard.com'),
-                recipients=[recipient]
-            )
-            body = """
-            <p>You have successfully logged in to your FraudGuard account.</p>
-            <p style='color: #666; font-size: 13px;'>If this was you, no action is needed.</p>
-            """
-            details = {
-                "Status": "Success",
-                "IP Address": ip_address,
-                "Location": location,
-                "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-            msg.html = create_html_email("Login Detected", body, details)
-            mail.send(msg)
-            print(f"✅ Login Email Sent to {recipient}")
-    except Exception as e:
-        print(f"❌ Failed to send Login Email: {e}")
+    subject = '✅ Successful Login Alert'
+    body = """
+    <p>You have successfully logged in to your FraudGuard account.</p>
+    <p style='color: #666; font-size: 13px;'>If this was you, no action is needed.</p>
+    """
+    details = {
+        "Status": "Success",
+        "IP Address": ip_address,
+        "Location": location,
+        "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    html_content = create_html_email("Login Detected", body, details)
+    send_brevo_email(app_instance, recipient, subject, html_content)
 
 # --- 4. GENERIC SECURITY ALERT ---
 def send_security_alert(app_instance, recipient, subject, ip_address, location="Unknown"):
-    try:
-        with app_instance.app_context():
-            mail = Mail(app_instance)
-            
-            is_good = "Successful" in subject
-            color = "#2f855a" if is_good else "#e53e3e"
-            
-            body = f"""
-            <div style='background-color: {color}; color: white; padding: 10px; border-radius: 4px; text-align: center; margin-bottom: 20px;'>
-                <b>{subject}</b>
-            </div>
-            """
-            
-            details = {
-                "Event": subject,
-                "IP Address": ip_address,
-                "Location": location,
-                "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-            
-            msg = Message(subject, sender=os.environ.get('MAIL_USERNAME', 'no-reply@fraudguard.com'), recipients=[recipient])
-            msg.html = create_html_email("Activity Notification", body, details)
-            mail.send(msg)
-    except Exception as e:
-        print(f"❌ Failed to send Security Alert: {e}")
+    is_good = "Successful" in subject
+    color = "#2f855a" if is_good else "#e53e3e"
+    
+    body = f"""
+    <div style='background-color: {color}; color: white; padding: 10px; border-radius: 4px; text-align: center; margin-bottom: 20px;'>
+        <b>{subject}</b>
+    </div>
+    """
+    
+    details = {
+        "Event": subject,
+        "IP Address": ip_address,
+        "Location": location,
+        "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    
+    html_content = create_html_email("Activity Notification", body, details)
+    send_brevo_email(app_instance, recipient, subject, html_content)
