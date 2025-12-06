@@ -51,10 +51,12 @@ def finalize_login_success(user, real_ip):
     
     # 3. Send email alert (Threaded)
     app_instance = current_app._get_current_object()
+    location = GeoService.get_location_name(real_ip)
     Thread(target=send_login_success_email, args=(
         app_instance, 
         user.email, 
-        real_ip
+        real_ip,
+        location
     )).start()
     
     # 4. Device Check (Preserving existing logic for completeness)
@@ -63,7 +65,7 @@ def finalize_login_success(user, real_ip):
     if not known_device:
         new_device = Device(user_id=user.id, device_fingerprint=device_id, device_name=request.headers.get('Sec-Ch-Ua-Platform', 'Web Browser'))
         db.session.add(new_device)
-        Thread(target=send_new_device_alert, args=(app_instance, user.email, real_ip, device_id)).start()
+        Thread(target=send_new_device_alert, args=(app_instance, user.email, real_ip, device_id, location)).start()
 
     # 5. Update Stats
     user.last_login_at = datetime.utcnow()

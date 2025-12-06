@@ -23,7 +23,7 @@ class GeoService:
         If X-Forwarded-For is present, it returns the first IP (the original client).
         """
         if request.headers.getlist("X-Forwarded-For"):
-            return request.headers.getlist("X-Forwarded-For")[0]
+            return request.headers.getlist("X-Forwarded-For")[0].split(',')[0].strip()
         return request.remote_addr
 
     @staticmethod
@@ -57,4 +57,15 @@ class GeoService:
         except Exception as e:
             # IP not found in DB
             return None
+
+    @staticmethod
+    def get_location_name(ip_address):
+        """Returns 'City, Country' string or 'Unknown'"""
+        try:
+            details = GeoService.get_ip_details(ip_address)
+            if details and details.get('country'):
+                return f"{details.get('country')}"
+        except:
+            pass
+        return "Unknown"
         
