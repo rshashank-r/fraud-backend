@@ -49,23 +49,38 @@ def finalize_login_success(user, real_ip):
     # 2. Log success
     SecuritySuite.log_action(user.id, "LOGIN_SUCCESS", "Successful Login", real_ip)
     
-    # 3. Send email alert (Threaded)
-    app_instance = current_app._get_current_object()
-    location = GeoService.get_location_name(real_ip)
-    Thread(target=send_login_success_email, args=(
-        app_instance, 
-        user.email, 
-        real_ip,
-        location
-    )).start()
-    
-    # 4. Device Check (Preserving existing logic for completeness)
+    # 4. Device Check & Email Alert
     device_id = request.headers.get('User-Agent', 'unknown')
     known_device = Device.query.filter_by(user_id=user.id, device_fingerprint=device_id).first()
+    
+    # Common location lookup
+    app_instance = current_app._get_current_object()
+    location = GeoService.get_location_name(real_ip)
+
     if not known_device:
-        new_device = Device(user_id=user.id, device_fingerprint=device_id, device_name=request.headers.get('Sec-Ch-Ua-Platform', 'Web Browser'))
+        # Case A: New Device -> Send Device Alert ONLY
+        # Extract platform more reliably
+        ua_platform = request.headers.get('Sec-Ch-Ua-Platform')
+        if not ua_platform:
+             # Simple fallback extraction
+             if "Windows" in device_id: ua_platform = "Windows"
+             elif "Mac" in device_id: ua_platform = "MacOS"
+             elif "Linux" in device_id: ua_platform = "Linux"
+             elif "Android" in device_id: ua_platform = "Android"
+             elif "iPhone" in device_id or "iPad" in device_id: ua_platform = "iOS"
+             else: ua_platform = "Unknown Device"
+
+        new_device = Device(user_id=user.id, device_fingerprint=device_id, device_name=ua_platform)
         db.session.add(new_device)
         Thread(target=send_new_device_alert, args=(app_instance, user.email, real_ip, device_id, location)).start()
+    else:
+        # Case B: Known Device -> Send standard Login Success Email
+        Thread(target=send_login_success_email, args=(
+            app_instance, 
+            user.email, 
+            real_ip,
+            location
+        )).start()
 
     # 5. Update Stats
     user.last_login_at = datetime.utcnow()
@@ -91,6 +106,16 @@ def login_step_one():
     real_ip = GeoService.get_real_ip()
     email = data.get('email')
     password = data.get('password')
+
+    # --- CAPTCHA VERIFICATION (Enforce Human Check) ---
+    captcha_token = data.get('captcha_token')
+    if not captcha_token:
+        # Graceful fallback for older clients or if frontend fails
+        # But for security, we should enforce it.
+        return jsonify({"error": "Please complete the human check"}), 400
+    
+    if not captcha_token.startswith("human_token_"):
+        return jsonify({"error": "Invalid verification token"}), 400
 
     user = User.query.filter_by(email=email).first()
     app_instance = current_app._get_current_object()
