@@ -233,8 +233,8 @@ def register():
         pass 
     else:
         import requests
-        # Use Test Secret Key (Always valid)
-        secret_key = "6LeIxAcTAAAAAGG-vFI1TnRWxPZ7d02F2KbTK44" 
+        # Use Secret Key from Env, fallback to Test Key
+        secret_key = os.environ.get('RECAPTCHA_SECRET_KEY', "6LeIxAcTAAAAAGG-vFI1TnRWxPZ7d02F2KbTK44")
         verify_url = "https://www.google.com/recaptcha/api/siteverify"
         payload = {'secret': secret_key, 'response': captcha_token}
         
