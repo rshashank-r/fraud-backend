@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity, verify_jwt_in_request
 from models import Transaction, User, Device, db, FraudAlert
 from services.fraud_engine import FraudEngine
-from services.email_service import send_email_otp, generate_otp, send_fraud_alert
+from services.email_service import send_email_otp, generate_otp, send_fraud_alert, send_detailed_transaction_alert
 from services.security_suite import SecuritySuite
 from services.geo_service import GeoService
 from services.security_service import SecurityService
@@ -182,15 +182,19 @@ def process_payment():
             )
             db.session.add(user_notif)
             
-            if features.get('failed_count_1h', 0) > 5:
-                user.is_locked = True
-                message += " Account Locked."
+            # if features.get('failed_count_1h', 0) > 5:
+            #     user.is_locked = True
+            #     message += " Account Locked."
             
-            alert_details = {
-                "id": tx_uuid, "amount": amount, "risk_score": risk_score,
-                "reason": explanation, "location": location_str
+            # Send Detailed Alert (Blocked)
+            tx_alert_data = {
+                "status": "BLOCKED",
+                "amount": amount,
+                "reason": explanation,
+                "location": location_str,
+                "receiver": receiver_acc
             }
-            Thread(target=send_fraud_alert, args=(app_instance, user.email, alert_details)).start()
+            Thread(target=send_detailed_transaction_alert, args=(app_instance, user.email, tx_alert_data)).start()
             
         elif risk_score > 0.25:
             # 🟡 VERIFY - Check if 2FA is enabled
@@ -223,6 +227,16 @@ def process_payment():
             user.total_tx_count += 1
             user.average_spending = (user.average_spending * 0.9) + (amount * 0.1)
             SecuritySuite.update_trust_score(user)
+
+            # Send Detailed Alert (Success)
+            tx_alert_data = {
+                "status": "SUCCESS",
+                "amount": amount,
+                "reason": "Verified Transaction",
+                "location": location_str,
+                "receiver": receiver_acc
+            }
+            Thread(target=send_detailed_transaction_alert, args=(app_instance, user.email, tx_alert_data)).start()
         
         # --- 6. COMMIT TRANSACTION ---
         db.session.commit()

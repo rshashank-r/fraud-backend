@@ -189,3 +189,58 @@ def send_security_alert(app_instance, recipient, subject, ip_address, location="
     
     html_content = create_html_email("Activity Notification", body, details)
     send_brevo_email(app_instance, recipient, subject, html_content)
+
+# --- 5. DETAILED TRANSACTION ALERT ---
+def send_detailed_transaction_alert(app_instance, recipient, tx_data):
+    """
+    Sends a comprehensive email for ANY transaction status (Success, Failed, Blocked).
+    tx_data expected keys: 
+    - status: SUCCESS | FAILED | BLOCKED
+    - amount: float
+    - reason: str
+    - location: str
+    - receiver: str
+    - time: str
+    """
+    status = tx_data.get('status', 'PENDING')
+    amount = tx_data.get('amount')
+    reason = tx_data.get('reason', 'N/A')
+    
+    # Determine Style
+    if status == 'SUCCESS':
+        subject = f"✅ Transaction Successful: ₹{amount}"
+        color = "#2f855a" # Green
+        title = "Transaction Approved"
+        intro = f"Your transfer of <b>₹{amount}</b> to <b>{tx_data.get('receiver', 'Unknown')}</b> was successful."
+    elif status == 'BLOCKED':
+        subject = f"🚨 Transaction BLOCKED: ₹{amount}"
+        color = "#e53e3e" # Red
+        title = "Security Block"
+        intro = "We blocked a transaction due to security concerns."
+    else: # FAILED / ERROR
+        subject = f"❌ Transaction Failed: ₹{amount}"
+        color = "#dd6b20" # Orange
+        title = "Transaction Failed"
+        intro = "Your transaction could not be processed."
+
+    # Build Body
+    body = f"""
+    <div style='background-color: {color}; color: white; padding: 15px; border-radius: 6px; text-align: center; margin-bottom: 25px;'>
+        <b style='font-size: 18px;'>{title}</b><br/>
+        <span style='font-size: 14px;'>{reason}</span>
+    </div>
+    <p>{intro}</p>
+    """
+
+    # Details Table
+    details = {
+        "Status": status,
+        "Amount": f"₹{amount}",
+        "Receiver": tx_data.get('receiver'),
+        "Reason": reason,
+        "Location": tx_data.get('location', 'Unknown'),
+        "Time": tx_data.get('time', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    }
+
+    html_content = create_html_email(title, body, details)
+    send_brevo_email(app_instance, recipient, subject, html_content)
