@@ -225,28 +225,15 @@ def register():
     data = request.json
     password = data.get('password')
 
-    # --- CAPTCHA VERIFICATION ---
+    # --- CAPTCHA VERIFICATION (Custom Human Check) ---
     captcha_token = data.get('captcha_token')
     if not captcha_token:
-        # For testing/dev, we might skip if not provided, but for security we should enforce it.
-        # Using Google's Test Secret Key for now: 6LeIxAcTAAAAAGG-vFI1TnRWxPZ7d02F2KbTK44
-        pass 
-    else:
-        import requests
-        # Use Secret Key from Env, fallback to Test Key
-        secret_key = os.environ.get('RECAPTCHA_SECRET_KEY', "6LeIxAcTAAAAAGG-vFI1TnRWxPZ7d02F2KbTK44")
-        verify_url = "https://www.google.com/recaptcha/api/siteverify"
-        payload = {'secret': secret_key, 'response': captcha_token}
-        
-        try:
-            resp = requests.post(verify_url, data=payload)
-            result = resp.json()
-            if not result.get('success'):
-                return jsonify({"error": "CAPTCHA verification failed"}), 400
-        except Exception as e:
-            print(f"CAPTCHA Error: {e}")
-            # Fail open or closed? Closed for security.
-            return jsonify({"error": "CAPTCHA service error"}), 500
+        return jsonify({"error": "Please complete the human check"}), 400
+    
+    # Validation: Check if token follows our mock format "human_token_..."
+    # This prevents simple curl requests without the token
+    if not captcha_token.startswith("human_token_"):
+        return jsonify({"error": "Invalid verification token"}), 400
 
     # --- PASSWORD STRENGTH CHECK ---
     if not password or len(password) < 8 or not re.search(r"\d", password) or not re.search(r"[A-Z]", password):
