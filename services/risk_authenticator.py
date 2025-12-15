@@ -9,6 +9,15 @@ from services.geo_service import GeoService
 from sqlalchemy import func
 import random
 
+def is_mobile_device(login_data):
+    """Helper to detect if login is from mobile device"""
+    device_id = login_data.get('device_id', '')
+    os_name = login_data.get('os_name', '')
+    
+    mobile_indicators = ['android', 'iphone', 'ipad', 'mobile', 'ios']
+    return any(indicator in device_id.lower() or indicator in os_name.lower() 
+               for indicator in mobile_indicators)
+
 class RiskAuthenticator:
     """
     Dynamic authentication system that adjusts security requirements
@@ -52,28 +61,30 @@ class RiskAuthenticator:
         curr_lat = login_data.get('location_lat', 0.0)
         curr_lon = login_data.get('location_lon', 0.0)
         
-        # --- 0. CRITICAL SECURITY CHECKS (INSTANT BLOCK) ---
-        # These checks set risk_score to 1.0, triggering FREEZE authentication requirement
+        # --- 0. CRITICAL SECURITY CHECKS (REFINED DETECTION) ---
+        # Only using the most reliable detection methods to avoid false positives
         
-        # A. Developer Tools Detection
-        is_webdriver = login_data.get('is_webdriver', False)
-        if is_webdriver:
-            risk_score = 1.0
-            risk_factors = ["Developer tools enabled - Security violation"]
-            return risk_score, risk_factors
+        suspicious_signals = []
+        
+        # A. Developer Tools Detection (explicit detection - most reliable)
+        developer_tools_enabled = login_data.get('developer_tools_enabled', False)
+        if developer_tools_enabled:
+            suspicious_signals.append("Developer tools explicitly enabled")
         
         # B. Emulator Detection
         is_emulator = login_data.get('is_emulator', False)
         if is_emulator:
-            risk_score = 1.0
-            risk_factors = ["Emulator detected - Automated device blocked"]
-            return risk_score, risk_factors
+            suspicious_signals.append("Emulator/automated browser detected")
         
         # C. Rooted/Jailbroken Device Detection
         is_rooted = login_data.get('is_rooted', False)
         if is_rooted:
+            suspicious_signals.append("Rooted/jailbroken device detected")
+        
+        # BLOCK if ANY critical security threat is detected
+        if len(suspicious_signals) > 0:
             risk_score = 1.0
-            risk_factors = ["Rooted/jailbroken device detected - Security risk"]
+            risk_factors = suspicious_signals
             return risk_score, risk_factors
         
         # --- 1. NEW DEVICE CHECK ---
