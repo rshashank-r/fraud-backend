@@ -27,3 +27,5 @@ test_add_card.py
 test_behavior_graph.py
 .env
 test.py
+test_risk_auth.py
+database_migration.py

@@ -59,18 +59,24 @@ class Transaction(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = db.Column(db.String(36), db.ForeignKey('users.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
-    receiver_account = db.Column(db.String(50), nullable=False)
-    transaction_type = db.Column(db.String(20), nullable=False)
+    receiver_account = db.Column(db.String(100))
+    transaction_type = db.Column(db.String(20))
     category = db.Column(db.String(50), default='General')
     status = db.Column(db.String(20), default='PENDING')
-    ip_address = db.Column(db.String(50), nullable=False)
-    location_lat = db.Column(db.Float, nullable=True)
-    location_lon = db.Column(db.Float, nullable=True)
-    device_id = db.Column(db.String(500), nullable=True)
+    ip_address = db.Column(db.String(50))
+    location_lat = db.Column(db.Float)
+    location_lon = db.Column(db.Float)
+    location_name = db.Column(db.String(200)) # New column
+    device_id = db.Column(db.String(500))
     risk_score = db.Column(db.Float, default=0.0)
-    risk_reason = db.Column(db.String(200), nullable=True)
+    risk_reason = db.Column(db.Text)
     is_flagged_incorrect = db.Column(db.Boolean, default=False) 
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    # NEW: Replay Attack Prevention fields
+    tx_hash = db.Column(db.String(64), unique=True, index=True, nullable=True)  # SHA-256 hash
+    nonce = db.Column(db.String(36), nullable=True)  # UUID nonce
+    
     alert = db.relationship('FraudAlert', backref='transaction', uselist=False)
 
 class Device(db.Model):
@@ -81,6 +87,13 @@ class Device(db.Model):
     last_used_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_trusted = db.Column(db.Boolean, default=True)
     device_name = db.Column(db.String(50), default="Unknown Device")
+    
+    # NEW: Adaptive Rate Limiting fields
+    reputation_score = db.Column(db.Integer, default=500)  # 0-1000, threshold 500
+    failed_attempts = db.Column(db.Integer, default=0)
+    success_count = db.Column(db.Integer, default=0)
+    last_failure_at = db.Column(db.DateTime, nullable=True)
+
 
 class FraudAlert(db.Model):
     __tablename__ = 'fraud_alerts'

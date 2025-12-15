@@ -26,15 +26,24 @@ class FraudEngine:
     
     @classmethod
     def load_model(cls):
-        """Loads the XGBoost model safely."""
-        if xgb and cls._model is None:
+        """Loads the XGBoost model safely (singleton pattern)."""
+        # Skip if already loaded
+        if cls._model is not None:
+            return
+            
+        if xgb:
             with cls._lock:
+                # Double-check after acquiring lock
                 if cls._model is None:
                     try:
                         cls._model = xgb.Booster()
                         cls._model.load_model('fraud_model_xgb.json')
+                        print("    ✓ XGBoost model initialized")
                     except Exception as e:
-                        print(f"⚠️ Model load failed: {e}")
+                        print(f"    ⚠️ Model load failed: {e}")
+                        print("    → Running in heuristic mode")
+        else:
+            print("    ℹ️ XGBoost not available, using heuristic mode")
 
     @staticmethod
     def calculate_distance(lat1, lon1, lat2, lon2):

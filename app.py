@@ -119,18 +119,27 @@ def create_app():
             "cors_origins": allowed_origins
         }), 200
 
-    # Initialize DB & Load Model
+    # Initialize DB
     with app.app_context():
         db.create_all()
-        try:
-            print("⏳ Pre-loading Fraud Model...")
-            FraudEngine.load_model()
-            print("✅ Model Loaded!")
-        except Exception as e:
-            print(f"⚠️ Warning: Could not load Fraud Model: {e}")
 
     return app
+
 app = create_app()
+
+# Load model only once (not in reloader process)
+# Flask's debug mode spawns a reloader process that would load the model twice
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not os.environ.get('WERKZEUG_RUN_MAIN'):
+    # This ensures model loads only once, even in debug mode
+    if not hasattr(FraudEngine, '_model_loaded'):
+        with app.app_context():
+            try:
+                print("⏳ Pre-loading Fraud Model...")
+                FraudEngine.load_model()
+                FraudEngine._model_loaded = True
+                print("✅ Model Loaded!")
+            except Exception as e:
+                print(f"⚠️ Warning: Could not load Fraud Model: {e}")
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
