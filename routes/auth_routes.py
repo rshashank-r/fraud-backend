@@ -4,7 +4,7 @@ from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identi
 from models import User, Device, db, AuditLog, TokenBlocklist
 from services.security_service import SecurityService
 from services.security_suite import SecuritySuite
-from services.email_service import send_login_success_email, send_new_device_alert, send_email_otp
+from services.email_service import send_login_success_email, send_new_device_alert, send_email_otp, send_suspicious_device_alert
 from services.geo_service import GeoService
 from threading import Thread
 from datetime import datetime, timedelta
@@ -27,11 +27,11 @@ def send_security_alert(app_instance, user_email, alert_type, ip_address):
         with app_instance.app_context():
             mail = Mail(app_instance)
             subject = "Security Alert: Login Activity"
-            body = f"Activity detected on your account.\n\nType: {alert_type}\nIP: {ip_address}\nTime: {datetime.utcnow()}"
+            body = f"Activity detected on your account.\\n\\nType: {alert_type}\\nIP: {ip_address}\\nTime: {datetime.utcnow()}"
             
             if "Failed" in alert_type:
                 subject = "🚨 Failed Login Attempt"
-                body += "\n\nIf this was not you, please freeze your account immediately."
+                body += "\\n\\nIf this was not you, please freeze your account immediately."
             
             msg = Message(subject, recipients=[user_email], body=body, sender=os.environ.get('MAIL_USERNAME', 'no-reply@fraudguard.com'))
             mail.send(msg)
@@ -98,7 +98,7 @@ def finalize_login_success(user, real_ip):
     }
 
 # ==========================================
-# 1. INITIAL LOGIN (Step 1)
+# 1. INITIAL LOGIN (Step 1) - WITH RISK-BASED AUTH
 # ==========================================
 @auth_bp.route('/login', methods=['POST'])
 def login_step_one():
@@ -135,11 +135,108 @@ def login_step_one():
         user.is_breached = True
         db.session.commit()
 
-    # DETERMINE VERIFICATION METHOD
+    # ===== NEW: RISK-BASED AUTHENTICATION =====
+    from services.risk_authenticator import RiskAuthenticator
+    
+    # Collect login context data
+    login_data = {
+        'ip_address': real_ip,
+        'device_id': request.headers.get('User-Agent', 'unknown'),
+        'location_lat': data.get('lat', 0.0),
+        'location_lon': data.get('lon', 0.0),
+        'timestamp': datetime.utcnow(),
+        # Security flags from enhanced fingerprint
+        'is_webdriver': data.get('is_webdriver', False),
+        'is_emulator': data.get('is_emulator', False),
+        'is_rooted': data.get('is_rooted', False)
+    }
+    
+    # Calculate risk score
+    risk_score, risk_factors = RiskAuthenticator.calculate_login_risk(user, login_data)
+    
+    # Get authentication requirement
+    auth_requirement = RiskAuthenticator.get_auth_requirement(risk_score)
+    
+    # Log the risk assessment
+    SecuritySuite.log_action(
+        user.id,
+        "LOGIN_RISK_ASSESSMENT",
+        f"Risk: {risk_score:.2f}, Requirement: {auth_requirement}, Factors: {', '.join(risk_factors)}",
+        real_ip
+    )
+    
+    # Handle FREEZE case - SEND ALERTS
+    if auth_requirement == 'FREEZE':
+        # Determine device type from risk factors
+        device_type = "Unknown"
+        if any("Developer tools" in factor for factor in risk_factors):
+            device_type = "Developer Tools"
+        elif any("Emulator" in factor for factor in risk_factors):
+            device_type = "Emulator"
+        elif any("Rooted" in factor or "jailbroken" in factor for factor in risk_factors):
+            device_type = "Rooted Device"
+        
+        # Get location for email
+        location = GeoService.get_location_name(real_ip)
+        
+        # Send email alert in background
+        Thread(target=send_suspicious_device_alert, args=(
+            app_instance,
+            user.email,
+            device_type,
+            real_ip,
+            location
+        )).start()
+        
+        # Create in-app notification
+        from models import Notification
+        notification = Notification(
+            user_id=user.id,
+            title=f"Security Alert: {device_type} Blocked",
+            type='SECURITY_ALERT',
+            message=f"🚨 Blocked login attempt from {device_type}. Location: {location}. Your account is secure.",
+            is_read=False
+        )
+        db.session.add(notification)
+        db.session.commit()
+        
+        challenge_response = RiskAuthenticator.create_auth_challenge(user, 'FREEZE', app_instance)
+        return jsonify({
+            "error": "Login denied from suspicious device",
+            "message": f"Access denied: {device_type} detected. Please login from a secure device.",
+            "risk_score": risk_score,
+            "risk_factors": risk_factors,
+            "account_status": "active"
+        }), 403
+    
+    # Handle OTP_DEVICE case (high risk)
+    if auth_requirement == 'OTP_DEVICE':
+        challenge_response = RiskAuthenticator.create_auth_challenge(user, 'OTP_DEVICE', app_instance)
+        return jsonify({
+            "message": "High-risk login detected",
+            "verification_required": "otp_device",
+            "risk_score": risk_score,
+            "risk_factors": risk_factors,
+            "details": "Please verify both email OTP and device fingerprint"
+        }), 202
+    
+    # Handle OTP case (medium risk)
+    if auth_requirement == 'OTP':
+        challenge_response = RiskAuthenticator.create_auth_challenge(user, 'OTP', app_instance)
+        return jsonify({
+            "message": "Verification required",
+            "verification_required": "email_otp",
+            "risk_score": risk_score,
+            "risk_factors": risk_factors
+        }), 202
+    
+    # Low risk - proceed with existing 2FA/OTP flow
+    # DETERMINE VERIFICATION METHOD (Original Logic)
     if user.is_2fa_enabled:
         return jsonify({
             "message": "Verification required",
-            "verification_required": "totp"
+            "verification_required": "totp",
+            "risk_score": risk_score
         }), 202
     else:
         # OTP Loop Prevention
@@ -157,8 +254,10 @@ def login_step_one():
 
         return jsonify({
             "message": "Verification required",
-            "verification_required": "email_otp"
+            "verification_required": "email_otp",
+            "risk_score": risk_score
         }), 202
+
 
 # ==========================================
 # 2. VERIFY TOTP (Step 2a)

@@ -244,3 +244,52 @@ def send_detailed_transaction_alert(app_instance, recipient, tx_data):
 
     html_content = create_html_email(title, body, details)
     send_brevo_email(app_instance, recipient, subject, html_content)
+
+# --- 6. SUSPICIOUS DEVICE ALERT ---
+def send_suspicious_device_alert(app_instance, recipient, device_type, ip_address, location="Unknown"):
+    """
+    Sends alert when login attempt from suspicious device is blocked.
+    device_type: 'Developer Tools' | 'Emulator' | 'Rooted Device'
+    """
+    subject = f"🚨 SECURITY ALERT: Login Blocked - {device_type} Detected"
+    
+    # Device-specific messaging
+    if device_type == "Developer Tools":
+        risk_description = "Someone attempted to access your account with browser developer tools enabled, which is commonly used by attackers to inspect and manipulate security mechanisms."
+        action_needed = "If this was you testing, please close DevTools and try again. Your account is NOT locked - just login from a secure browser."
+    elif device_type == "Emulator":
+        risk_description = "An automated browser or emulator was detected attempting to access your account. This is a common technique used in bot attacks and credential stuffing."
+        action_needed = "If this wasn't you, your credentials may be compromised. Change your password and enable 2FA. Your account is safe - you can login from a real device anytime."
+    elif device_type == "Rooted Device":
+        risk_description = "A rooted or jailbroken device attempted to access your account. These devices bypass OS security protections and are high-risk for malware and data theft."
+        action_needed = "For security, please login from a secure, non-rooted device. Your account is NOT locked - just use a safe device."
+    else:
+        risk_description = "A suspicious device attempted to access your account."
+        action_needed = "If this wasn't you, please secure your account immediately. You can login from a trusted device."
+    
+    body = f"""
+    <div class='alert-box'>
+        <b>⚠️ LOGIN ATTEMPT BLOCKED</b><br/>
+        We detected and blocked a suspicious login attempt to your account.
+    </div>
+    <p><b>What happened:</b></p>
+    <p>{risk_description}</p>
+    <p><b>What you should do:</b></p>
+    <p>{action_needed}</p>
+    <p style='color: #666; font-size: 13px; margin-top: 20px;'>
+        ✅ Your account is secure and NOT frozen. You can login anytime from a secure device.
+    </p>
+    """
+    
+    details = {
+        "Threat Type": device_type,
+        "Status": "🛡️ LOGIN DENIED",
+        "IP Address": ip_address,
+        "Location": location,
+        "Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        "Action Taken": "Login attempt rejected (account still active)"
+    }
+    
+    html_content = create_html_email("Login Attempt Blocked", body, details)
+    send_brevo_email(app_instance, recipient, subject, html_content)
+
