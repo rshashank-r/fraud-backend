@@ -61,31 +61,32 @@ class RiskAuthenticator:
         curr_lat = login_data.get('location_lat', 0.0)
         curr_lon = login_data.get('location_lon', 0.0)
         
-        # --- 0. CRITICAL SECURITY CHECKS (REFINED DETECTION) ---
-        # Only using the most reliable detection methods to avoid false positives
+        # --- 0. DEVICE SECURITY CHECKS (DISABLED - Too many false positives) ---
+        # These checks are currently disabled to prevent blocking legitimate users
+        # Uncomment only if you have very reliable detection methods
         
-        suspicious_signals = []
+        # suspicious_signals = []
         
-        # A. Developer Tools Detection (explicit detection - most reliable)
-        developer_tools_enabled = login_data.get('developer_tools_enabled', False)
-        if developer_tools_enabled:
-            suspicious_signals.append("Developer tools explicitly enabled")
+        # # A. Developer Tools Detection (explicit detection - most reliable)
+        # developer_tools_enabled = login_data.get('developer_tools_enabled', False)
+        # if developer_tools_enabled:
+        #     suspicious_signals.append("Developer tools explicitly enabled")
         
-        # B. Emulator Detection
-        is_emulator = login_data.get('is_emulator', False)
-        if is_emulator:
-            suspicious_signals.append("Emulator/automated browser detected")
+        # # B. Emulator Detection
+        # is_emulator = login_data.get('is_emulator', False)
+        # if is_emulator:
+        #     suspicious_signals.append("Emulator/automated browser detected")
         
-        # C. Rooted/Jailbroken Device Detection
-        is_rooted = login_data.get('is_rooted', False)
-        if is_rooted:
-            suspicious_signals.append("Rooted/jailbroken device detected")
+        # # C. Rooted/Jailbroken Device Detection
+        # is_rooted = login_data.get('is_rooted', False)
+        # if is_rooted:
+        #     suspicious_signals.append("Rooted/jailbroken device detected")
         
-        # BLOCK if ANY critical security threat is detected
-        if len(suspicious_signals) > 0:
-            risk_score = 1.0
-            risk_factors = suspicious_signals
-            return risk_score, risk_factors
+        # # BLOCK if ANY critical security threat is detected
+        # if len(suspicious_signals) > 0:
+        #     risk_score = 1.0
+        #     risk_factors = suspicious_signals
+        #     return risk_score, risk_factors
         
         # --- 1. NEW DEVICE CHECK ---
         if device_id:
