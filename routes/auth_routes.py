@@ -209,54 +209,59 @@ def login_step_one():
             "account_status": "active"
         }), 403
     
-    # Handle OTP_DEVICE case (high risk)
+    
+    # Handle OTP_DEVICE case (high risk, new device)
     if auth_requirement == 'OTP_DEVICE':
-        challenge_response = RiskAuthenticator.create_auth_challenge(user, 'OTP_DEVICE', app_instance)
-        return jsonify({
-            "message": "High-risk login detected",
-            "verification_required": "otp_device",
-            "risk_score": risk_score,
-            "risk_factors": risk_factors,
-            "details": "Please verify both email OTP and device fingerprint"
-        }), 202
+        # If user has 2FA enabled, use TOTP instead of email OTP (more secure)
+        if user.is_2fa_enabled:
+            return jsonify({
+                "message": "High-risk login - Authenticator verification required",
+                "verification_required": "totp",
+                "risk_score": risk_score,
+                "risk_factors": risk_factors
+            }), 202
+        else:
+            challenge_response = RiskAuthenticator.create_auth_challenge(user, 'OTP_DEVICE', app_instance)
+            return jsonify({
+                "message": "High-risk login detected",
+                "verification_required": "otp_device",
+                "risk_score": risk_score,
+                "risk_factors": risk_factors,
+                "details": "Please verify both email OTP and device fingerprint"
+            }), 202
     
     # Handle OTP case (medium risk)
     if auth_requirement == 'OTP':
-        challenge_response = RiskAuthenticator.create_auth_challenge(user, 'OTP', app_instance)
-        return jsonify({
-            "message": "Verification required",
-            "verification_required": "email_otp",
-            "risk_score": risk_score,
-            "risk_factors": risk_factors
-        }), 202
+        # If user has 2FA enabled, use TOTP instead of email OTP (more secure)
+        if user.is_2fa_enabled:
+            return jsonify({
+                "message": "Verification required",
+                "verification_required": "totp",
+                "risk_score": risk_score,
+                "risk_factors": risk_factors
+            }), 202
+        else:
+            challenge_response = RiskAuthenticator.create_auth_challenge(user, 'OTP', app_instance)
+            return jsonify({
+                "message": "Verification required",
+                "verification_required": "email_otp",
+                "risk_score": risk_score,
+                "risk_factors": risk_factors
+            }), 202
     
-    # Low risk - proceed with existing 2FA/OTP flow
-    # DETERMINE VERIFICATION METHOD (Original Logic)
+    # Low risk - check if user has 2FA enabled
     if user.is_2fa_enabled:
         return jsonify({
             "message": "Verification required",
             "verification_required": "totp",
             "risk_score": risk_score
         }), 202
-    else:
-        # OTP Loop Prevention
-        should_generate_new = True
-        if user.email_otp and user.email_otp_expiry and user.email_otp_expiry > datetime.utcnow():
-            should_generate_new = False
-        
-        if should_generate_new:
-            new_otp = "".join([str(random.randint(0, 9)) for _ in range(6)])
-            user.email_otp = new_otp
-            user.email_otp_expiry = datetime.utcnow() + timedelta(minutes=5)
-            db.session.commit()
-            
-            Thread(target=send_email_otp, args=(app_instance, user.email, new_otp, "LOGIN", "Account Access")).start()
+    
+    # No 2FA and low risk - direct login
+    # (This is the ALLOW case from risk-based auth)
+    login_response = finalize_login_success(user, real_ip)
+    return jsonify(login_response), 200
 
-        return jsonify({
-            "message": "Verification required",
-            "verification_required": "email_otp",
-            "risk_score": risk_score
-        }), 202
 
 
 # ==========================================
