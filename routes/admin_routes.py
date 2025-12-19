@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request, make_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import User, Transaction, FraudRule, IPWhitelist, Dispute, Notification, AuditLog, db, UnlockRequest
 from sqlalchemy import func, case
+from sqlalchemy.orm import joinedload
 import csv
 import io
 from datetime import datetime, timedelta
@@ -44,7 +45,9 @@ def get_all_transactions():
     status = request.args.get('status')
     search = request.args.get('search')
     
-    query = Transaction.query.order_by(Transaction.timestamp.desc())
+    # OPTIMIZED: Use joinedload to eagerly load user relationship
+    # This prevents N+1 query problem - loads all users in a single JOIN query
+    query = Transaction.query.options(joinedload(Transaction.user)).order_by(Transaction.timestamp.desc())
     
     if search:
         query = query.join(User).filter(
