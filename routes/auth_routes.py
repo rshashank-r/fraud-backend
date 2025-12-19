@@ -6,18 +6,25 @@ from services.security_service import SecurityService
 from services.security_suite import SecuritySuite
 from services.email_service import send_login_success_email, send_new_device_alert, send_email_otp, send_suspicious_device_alert
 from services.geo_service import GeoService
+from services.captcha_service import CaptchaService
 from threading import Thread
 from datetime import datetime, timedelta
 import pyotp
 import os 
 import random
 import re
+import secrets
 from extensions import limiter
 from flask_mail import Mail, Message
 
 auth_bp = Blueprint('auth', __name__)
 
-ADMIN_SECRET_KEY = os.environ.get('ADMIN_SECRET_KEY', 'SuperSecretAdminKey123!')
+# FIXED: No default hardcoded admin secret - generate temporary if missing
+ADMIN_SECRET_KEY = os.environ.get('ADMIN_SECRET_KEY')
+if not ADMIN_SECRET_KEY:
+    ADMIN_SECRET_KEY = secrets.token_urlsafe(32)
+    print(f"⚠️ ADMIN_SECRET_KEY not set. Generated temporary key.")
+    print(f"⚠️ Set ADMIN_SECRET_KEY environment variable for production!")
 
 # --- LOCAL HELPER: SEND ALERT EMAIL ---
 # Redefined here to ensure it works with the threading logic requested
@@ -91,11 +98,11 @@ def finalize_login_success(user, real_ip):
     # Return response data with EXPLICIT role
     print(f"🔑 Returning token for role: {user.role}")
     
-    # NOTE: Using 'access_token' to match frontend expectations, 'token' added for compatibility
+    # FIXED: Consistent token field for frontend
     return {
         "access_token": token,
-        "token": token, 
-        "role": user.role,  # CRITICAL: This must match the user's actual role in DB
+        "token": token,  # Compatibility field
+        "role": user.role,
         "is_breached": user.is_breached,
         "message": "Login successful"
     }
@@ -110,15 +117,16 @@ def login_step_one():
     email = data.get('email')
     password = data.get('password')
 
-    # --- CAPTCHA VERIFICATION (Enforce Human Check) ---
-    captcha_token = data.get('captcha_token')
-    if not captcha_token:
-        # Graceful fallback for older clients or if frontend fails
-        # But for security, we should enforce it.
-        return jsonify({"error": "Please complete the human check"}), 400
+    # --- CAPTCHA VERIFICATION (Server-Side Challenge) ---
+    challenge_id = data.get('captcha_challenge_id')
+    captcha_answer = data.get('captcha_answer')
     
-    if not captcha_token.startswith("human_token_"):
-        return jsonify({"error": "Invalid verification token"}), 400
+    if not challenge_id or captcha_answer is None:
+        return jsonify({"error": "Please complete the verification challenge"}), 400
+    
+    # Verify with server-side service
+    if not CaptchaService.verify_challenge(challenge_id, captcha_answer):
+        return jsonify({"error": "Invalid verification answer or expired challenge"}), 400
 
     user = User.query.filter_by(email=email).first()
     app_instance = current_app._get_current_object()
@@ -399,15 +407,16 @@ def register():
     data = request.json
     password = data.get('password')
 
-    # --- CAPTCHA VERIFICATION (Custom Human Check) ---
-    captcha_token = data.get('captcha_token')
-    if not captcha_token:
-        return jsonify({"error": "Please complete the human check"}), 400
+    # --- CAPTCHA VERIFICATION (Server-Side Challenge) ---
+    challenge_id = data.get('captcha_challenge_id')
+    captcha_answer = data.get('captcha_answer')
     
-    # Validation: Check if token follows our mock format "human_token_..."
-    # This prevents simple curl requests without the token
-    if not captcha_token.startswith("human_token_"):
-        return jsonify({"error": "Invalid verification token"}), 400
+    if not challenge_id or captcha_answer is None:
+        return jsonify({"error": "Please complete the verification challenge"}), 400
+    
+    # Verify with server-side service
+    if not CaptchaService.verify_challenge(challenge_id, captcha_answer):
+        return jsonify({"error": "Invalid verification answer or expired challenge"}), 400
 
     # --- PASSWORD STRENGTH CHECK ---
     if not password or len(password) < 8 or not re.search(r"\d", password) or not re.search(r"[A-Z]", password):
@@ -428,9 +437,10 @@ def register():
     if request.headers.get('X-ADMIN-KEY') == ADMIN_SECRET_KEY:
         role = 'ADMIN'
 
+    # FIXED: Use high-iteration PBKDF2 (600k iterations per OWASP 2023)
     new_user = User(
         email=email, 
-        password_hash=generate_password_hash(password, method='pbkdf2:sha256'), 
+        password_hash=generate_password_hash(password, method='pbkdf2:sha256:600000'), 
         role=role, 
         phone_number=data.get('phone_number'),
         home_ip=real_ip
@@ -499,7 +509,8 @@ def change_password():
     if not check_password_hash(user.password_hash, data.get('old_password')):
         return jsonify({"error": "Wrong old password"}), 400
     
-    user.password_hash = generate_password_hash(data.get('new_password'), method='pbkdf2:sha256')
+    # FIXED: Use high-iteration PBKDF2
+    user.password_hash = generate_password_hash(data.get('new_password'), method='pbkdf2:sha256:600000')
     db.session.commit()
     SecuritySuite.log_action(user.id, "PASSWORD_CHANGE", "Password updated", GeoService.get_real_ip())
     return jsonify({"message": "Password Changed"}), 200
@@ -510,7 +521,8 @@ def reset_password():
     user_id = get_jwt_identity()
     data = request.json
     user = User.query.get(user_id)
-    user.password_hash = generate_password_hash(data.get('new_password'), method='pbkdf2:sha256')
+    # FIXED: Use high-iteration PBKDF2
+    user.password_hash = generate_password_hash(data.get('new_password'), method='pbkdf2:sha256:600000')
     db.session.commit()
     return jsonify({"message": "Password reset successfully"}), 200
 
@@ -630,8 +642,8 @@ def reset_password_complete():
     if not new_password or len(new_password) < 8:
         return jsonify({"error": "Password must be at least 8 characters"}), 400
     
-    # Update password
-    user.password_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+    # Update password with high-iteration PBKDF2
+    user.password_hash = generate_password_hash(new_password, method='pbkdf2:sha256:600000')
     user.email_otp = None  # Clear OTP
     user.email_otp_expiry = None
     db.session.commit()
@@ -650,3 +662,27 @@ def reset_password_complete():
     )).start()
     
     return jsonify({"message": "Password reset successful"}), 200
+
+
+@auth_bp.route('/captcha/challenge', methods=['GET'])
+@limiter.limit("30 per minute")
+def get_captcha_challenge():
+    """Generate a new CAPTCHA challenge"""
+    try:
+        challenge_data = CaptchaService.generate_challenge()
+        return jsonify(challenge_data), 200
+    except Exception as e:
+        print(f"❌ CAPTCHA generation failed: {e}")
+        return jsonify({"error": "Failed to generate challenge"}), 500
+
+
+@auth_bp.route('/captcha/cleanup', methods=['POST'])
+@jwt_required()
+def cleanup_expired_captchas():
+    """Admin endpoint to manually cleanup expired challenges"""
+    user = User.query.get(get_jwt_identity())
+    if user.role != 'ADMIN':
+        return jsonify({"error": "Admin access required"}), 403
+    
+    removed_count = CaptchaService.cleanup_expired()
+    return jsonify({"message": f"Cleaned up {removed_count} expired challenges"}), 200

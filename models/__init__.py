@@ -212,3 +212,14 @@ class Card(db.Model):
     is_locked = db.Column(db.Boolean, default=False)
     daily_limit = db.Column(db.Float, default=50000.0)
     type = db.Column(db.String(20), default='DEBIT')
+
+class CaptchaChallenge(db.Model):
+    """Server-side CAPTCHA challenge storage"""
+    __tablename__ = 'captcha_challenges'
+    id = db.Column(db.Integer, primary_key=True)
+    challenge_id = db.Column(db.String(32), unique=True, nullable=False, index=True)
+    answer_hash = db.Column(db.String(64), nullable=False)  # SHA-256 hash
+    timestamp = db.Column(db.String(20), nullable=False)
+    expiry = db.Column(db.DateTime, nullable=False)
+    is_used = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

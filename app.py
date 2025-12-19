@@ -95,13 +95,23 @@ def create_app():
 
 
 
-    # ✅ ADDITIONAL FIX: Add global OPTIONS handler
     @app.before_request
     def handle_preflight():
         from flask import request
         if request.method == "OPTIONS":
             response = app.make_default_options_response()
             return response
+
+    # Security Headers (no external dependencies)
+    @app.after_request
+    def add_security_headers(response):
+        """Add security headers to all responses"""
+        response.headers['X-Frame-Options'] = 'DENY'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['X-XSS-Protection'] = '1; mode=block'
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+        response.headers['Permissions-Policy'] = 'geolocation=(self), microphone=(), camera=()'
+        return response
 
     # Error Handlers
     @app.errorhandler(429)

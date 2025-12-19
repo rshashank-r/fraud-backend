@@ -1,8 +1,15 @@
 import os
 
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'your_super_secret_key_change_me')
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'enter the main database url')
+    # CRITICAL: No fallback defaults for security-critical variables
+    SECRET_KEY = os.environ.get('SECRET_KEY')
+    if not SECRET_KEY:
+        raise ValueError("SECRET_KEY environment variable must be set")
+    
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
+    if not SQLALCHEMY_DATABASE_URI:
+        raise ValueError("DATABASE_URL environment variable must be set")
+    
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     SQLALCHEMY_ENGINE_OPTIONS = {
@@ -17,8 +24,12 @@ class Config:
     MAIL_SERVER = 'smtp.gmail.com'
     MAIL_PORT = 587
     MAIL_USE_TLS = True
-    MAIL_USERNAME = os.environ.get('MAIL_USERNAME', 'enter the main email') 
-    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', 'enter the main email password') # Use App Password
+    MAIL_USERNAME = os.environ.get('MAIL_USERNAME')
+    MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD')
+    
+    # Validate mail config
+    if not MAIL_USERNAME or not MAIL_PASSWORD:
+        print("⚠️ WARNING: Email service not configured. Set MAIL_USERNAME and MAIL_PASSWORD.")
     
     # Brevo API Key
     BREVO_API_KEY = os.environ.get('BREVO_API_KEY')
