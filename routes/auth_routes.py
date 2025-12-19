@@ -343,6 +343,13 @@ def verify_totp_login():
 
     # Success
     response_data = finalize_login_success(user, real_ip)
+    
+    # DEBUG: Log what we're returning
+    print(f"🔑 TOTP Verification - Returning response:")
+    print(f"   access_token: {response_data.get('access_token')[:20]}..." if response_data.get('access_token') else "   access_token: None")
+    print(f"   token: {response_data.get('token')[:20]}..." if response_data.get('token') else "   token: None")
+    print(f"   role: {response_data.get('role')}")
+    
     return jsonify(response_data), 200
 
 # ==========================================
@@ -375,6 +382,14 @@ def verify_email_otp_login():
 
     # Success
     response_data = finalize_login_success(user, real_ip)
+    
+    # DEBUG: Log what we're returning
+    print(f"🔑 Email OTP Verification - Returning response:")
+    print(f"   access_token: {response_data.get('access_token')[:20]}..." if response_data.get('access_token') else "   access_token: None")
+    print(f"   token: {response_data.get('token')[:20]}..." if response_data.get('token') else "   token: None")
+    print(f"   role: {response_data.get('role')}")
+    print(f"   Full response keys: {list(response_data.keys())}")
+    
     return jsonify(response_data), 200
 
 # ==========================================
