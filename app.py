@@ -33,13 +33,15 @@ def create_app():
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://192.168.0.103:3000",
-        "https://fraud-guard.netlify.app"
+        "https://fraud-guard.netlify.app",
+        "https://fraud-guard.netlify.app/",  # Both with and without trailing slash
     ]
 
-    # Add Production URL
+    # Add Production URL from environment
     prod_url = os.environ.get("FRONTEND_URL")
     if prod_url:
         allowed_origins.append(prod_url)
+        allowed_origins.append(prod_url.rstrip('/'))  # Add without trailing slash
 
     # ✅ CRITICAL FIX: Use resources parameter to apply CORS to all /api/* routes
     CORS(app,
