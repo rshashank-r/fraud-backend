@@ -95,6 +95,7 @@ def send_email_otp(app_instance, recipient, otp_code, context="LOGIN", extra_inf
     """
     Sends OTP for Login or Transaction verification.
     """
+    print(f"DEBUG: OTP Code for {recipient}: {otp_code}")
     if context == "LOGIN":
         subject = "🔐 Account Verification Code"
         title = "Verify Your Login"
@@ -249,7 +250,8 @@ def send_detailed_transaction_alert(app_instance, recipient, tx_data):
 def send_suspicious_device_alert(app_instance, recipient, device_type, ip_address, location="Unknown"):
     """
     Sends alert when login attempt from suspicious device is blocked.
-    device_type: 'Developer Tools' | 'Emulator' | 'Rooted Device'
+    device_type: 'Developer Tools' | 'Emulator' | 'Rooted Device' | 'Foreign Location' | 
+                 'New/Unknown Device' | 'New Account Login' | 'Unknown Device'
     """
     subject = f"🚨 SECURITY ALERT: Login Blocked - {device_type} Detected"
     
@@ -263,9 +265,18 @@ def send_suspicious_device_alert(app_instance, recipient, device_type, ip_addres
     elif device_type == "Rooted Device":
         risk_description = "A rooted or jailbroken device attempted to access your account. These devices bypass OS security protections and are high-risk for malware and data theft."
         action_needed = "For security, please login from a secure, non-rooted device. Your account is NOT locked - just use a safe device."
-    else:
-        risk_description = "A suspicious device attempted to access your account."
-        action_needed = "If this wasn't you, please secure your account immediately. You can login from a trusted device."
+    elif device_type == "Foreign Location":
+        risk_description = f"A login attempt was detected from an unusual or foreign location: {location}. This could indicate unauthorized access or account compromise."
+        action_needed = "If this is you traveling, your account is safe - just wait a few hours and try again, or contact support. If this wasn't you, change your password immediately."
+    elif device_type == "New/Unknown Device":
+        risk_description = f"A login was attempted from a device we don't recognize at your account's early stage. Location: {location}."
+        action_needed = "If this is your device, please try again in a few hours after your account builds trust. Your account is secure and NOT locked."
+    elif device_type == "New Account Login":
+        risk_description = f"Your new account triggered enhanced security verification. We detected activity from: {location}."
+        action_needed = "New accounts have extra security for the first 24 hours. If this is you, wait a bit and try again from a familiar location. Your account is active."
+    else:  # "Unknown Device" or any other type
+        risk_description = f"A suspicious login attempt was detected from {location}. Our fraud detection system flagged unusual patterns."
+        action_needed = "If this wasn't you, please secure your account immediately. If this is you, please try again from a trusted device and location. Your account is NOT frozen."
     
     body = f"""
     <div class='alert-box'>
@@ -291,5 +302,19 @@ def send_suspicious_device_alert(app_instance, recipient, device_type, ip_addres
     }
     
     html_content = create_html_email("Login Attempt Blocked", body, details)
-    send_brevo_email(app_instance, recipient, subject, html_content)
+    
+    # Log email sending
+    print(f"📧 Sending suspicious device alert to {recipient}")
+    print(f"   Subject: {subject}")
+    print(f"   Device Type: {device_type}")
+    
+    success = send_brevo_email(app_instance, recipient, subject, html_content)
+    
+    if success:
+        print(f"✅ Email successfully sent to {recipient}")
+    else:
+        print(f"❌ Failed to send email to {recipient}")
+    
+    return success
+
 

@@ -180,16 +180,38 @@ def login_step_one():
     # Handle FREEZE case - SEND ALERTS
     if auth_requirement == 'FREEZE':
         # Determine device type from risk factors
-        device_type = "Unknown"
+        device_type = "Unknown Device"
+        threat_category = "suspicious activity"
+        
+        # Technical security indicators (highest priority)
         if any("Developer tools" in factor for factor in risk_factors):
             device_type = "Developer Tools"
+            threat_category = "automated attack"
         elif any("Emulator" in factor for factor in risk_factors):
             device_type = "Emulator"
+            threat_category = "automated attack"
         elif any("Rooted" in factor or "jailbroken" in factor for factor in risk_factors):
             device_type = "Rooted Device"
+            threat_category = "compromised device"
+        # Behavioral indicators (secondary)
+        elif any("Foreign country" in factor or "Unusual location" in factor for factor in risk_factors):
+            device_type = "Foreign Location"
+            threat_category = "unusual location"
+        elif any("New device" in factor for factor in risk_factors):
+            device_type = "New/Unknown Device"
+            threat_category = "unrecognized device"
+        elif any("New account" in factor for factor in risk_factors):
+            device_type = "New Account Login"
+            threat_category = "new account protection"
         
         # Get location for email
         location = GeoService.get_location_name(real_ip)
+        
+        # Log the email sending attempt
+        print(f"🚨 FREEZE: Sending email alert to {user.email}")
+        print(f"   Device Type: {device_type}")
+        print(f"   Location: {location}")
+        print(f"   Risk Factors: {risk_factors}")
         
         # Send email alert in background
         Thread(target=send_suspicious_device_alert, args=(
@@ -211,6 +233,8 @@ def login_step_one():
         )
         db.session.add(notification)
         db.session.commit()
+        
+        print(f"✅ Created in-app notification for user {user.id}")
         
         challenge_response = RiskAuthenticator.create_auth_challenge(user, 'FREEZE', app_instance)
         return jsonify({
