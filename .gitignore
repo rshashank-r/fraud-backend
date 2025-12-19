@@ -1,6 +1,7 @@
 venv/
 __pycache__/
 instance/
+.env
 .DS_Store
 test_api_full.py
 *.pyc
@@ -25,7 +26,4 @@ API_DOCUMENTATION_FULL.md
 maintenance.py
 test_add_card.py
 test_behavior_graph.py
-.env
-test.py
-test_risk_auth.py
-database_migration.py
+
