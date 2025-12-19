@@ -221,6 +221,15 @@ def login_step_one():
                 "risk_factors": risk_factors
             }), 202
         else:
+            # Generate and send email OTP for high-risk login
+            new_otp = "".join([str(random.randint(0, 9)) for _ in range(6)])
+            user.email_otp = new_otp
+            user.email_otp_expiry = datetime.utcnow() + timedelta(minutes=5)
+            db.session.commit()
+            
+            # Send OTP email in background thread
+            Thread(target=send_email_otp, args=(app_instance, user.email, new_otp, "LOGIN", "High-Risk Login Verification")).start()
+            
             challenge_response = RiskAuthenticator.create_auth_challenge(user, 'OTP_DEVICE', app_instance)
             return jsonify({
                 "message": "High-risk login detected",
@@ -241,6 +250,15 @@ def login_step_one():
                 "risk_factors": risk_factors
             }), 202
         else:
+            # Generate and send email OTP
+            new_otp = "".join([str(random.randint(0, 9)) for _ in range(6)])
+            user.email_otp = new_otp
+            user.email_otp_expiry = datetime.utcnow() + timedelta(minutes=5)
+            db.session.commit()
+            
+            # Send OTP email in background thread
+            Thread(target=send_email_otp, args=(app_instance, user.email, new_otp, "LOGIN", "Account Access")).start()
+            
             challenge_response = RiskAuthenticator.create_auth_challenge(user, 'OTP', app_instance)
             return jsonify({
                 "message": "Verification required",
