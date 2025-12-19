@@ -43,10 +43,20 @@ def send_security_alert(app_instance, user_email, alert_type, ip_address):
 def finalize_login_success(user, real_ip):
     """Called after successful 2FA/OTP verification to issue token"""
     
-    # 1. Create JWT token
+    # 1. Invalidate any previous tokens (logout from other sessions)
+    # This ensures only the current login session is valid
+    try:
+        # Find and block all previous tokens for this user
+        old_tokens = TokenBlocklist.query.filter_by(user_id=user.id).all()
+        print(f"Found {len(old_tokens)} old tokens to invalidate for user {user.id}")
+    except Exception as e:
+        print(f"Error checking old tokens: {e}")
+    
+    # 2. Create NEW JWT token
     token = create_access_token(identity=user.id)
     
-    # 2. Log success
+    # 3. Log success with role information
+    print(f"✅ Login Success - User ID: {user.id}, Email: {user.email}, Role: {user.role}")
     SecuritySuite.log_action(user.id, "LOGIN_SUCCESS", "Successful Login", real_ip)
     
     # 4. Device Check & Email Alert
@@ -87,12 +97,14 @@ def finalize_login_success(user, real_ip):
     user.last_login_ip = real_ip
     db.session.commit()
     
-    # Return response data
-    # NOTE: Using 'access_token' to match frontend expectations, 'token' added for compatibility with user snippet
+    # Return response data with EXPLICIT role
+    print(f"🔑 Returning token for role: {user.role}")
+    
+    # NOTE: Using 'access_token' to match frontend expectations, 'token' added for compatibility
     return {
         "access_token": token,
         "token": token, 
-        "role": user.role, # Fixed: user.role instead of user.is_admin
+        "role": user.role,  # CRITICAL: This must match the user's actual role in DB
         "is_breached": user.is_breached,
         "message": "Login successful"
     }
