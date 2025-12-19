@@ -95,6 +95,7 @@ def create_app():
     app.register_blueprint(accounts_bp, url_prefix='/api/accounts')
     app.register_blueprint(alerts_bp, url_prefix='/api/alerts')
     app.register_blueprint(admin_security_bp, url_prefix='/api/admin')
+    app.register_blueprint(admin_analytics_bp, url_prefix='/api/admin/analytics')
 
 
 
