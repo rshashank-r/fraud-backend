@@ -22,6 +22,7 @@ from routes.user_routes import user_bp
 from routes.accounts import accounts_bp
 from routes.alerts import alerts_bp
 from routes.admin_security_routes import admin_security_bp
+from routes.admin_analytics import admin_analytics_bp
 
 
 def create_app():
