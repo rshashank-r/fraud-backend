@@ -43,16 +43,7 @@ def send_security_alert(app_instance, user_email, alert_type, ip_address):
 def finalize_login_success(user, real_ip):
     """Called after successful 2FA/OTP verification to issue token"""
     
-    # 1. Invalidate any previous tokens (logout from other sessions)
-    # This ensures only the current login session is valid
-    try:
-        # Find and block all previous tokens for this user
-        old_tokens = TokenBlocklist.query.filter_by(user_id=user.id).all()
-        print(f"Found {len(old_tokens)} old tokens to invalidate for user {user.id}")
-    except Exception as e:
-        print(f"Error checking old tokens: {e}")
-    
-    # 2. Create NEW JWT token
+    # Create NEW JWT token
     token = create_access_token(identity=user.id)
     
     # 3. Log success with role information
