@@ -265,23 +265,8 @@ class RiskAuthenticator:
             }
         
         elif requirement == 'OTP_DEVICE':
-            # Generate OTP
-            from services.email_service import generate_otp, send_email_otp
-            otp = generate_otp()
-            user.email_otp = otp
-            user.email_otp_expiry = datetime.utcnow() + timedelta(minutes=5)
-            db.session.commit()
-            
-            # Send OTP email
-            from threading import Thread
-            Thread(target=send_email_otp, args=(
-                app_instance, 
-                user.email, 
-                otp, 
-                "LOGIN",
-                ""
-            )).start()
-            
+            # NOTE: OTP already generated and sent in auth_routes.py (line 260)
+            # Removed duplicate generation - was causing wrong OTP in database
             return {
                 'type': 'OTP_DEVICE',
                 'message': 'Email OTP sent. Device verification required.',
@@ -290,23 +275,8 @@ class RiskAuthenticator:
             }
         
         elif requirement == 'OTP':
-            # Generate OTP
-            from services.email_service import generate_otp, send_email_otp
-            otp = generate_otp()
-            user.email_otp = otp
-            user.email_otp_expiry = datetime.utcnow() + timedelta(minutes=5)
-            db.session.commit()
-            
-            # Send OTP email
-            from threading import Thread
-            Thread(target=send_email_otp, args=(
-                app_instance, 
-                user.email, 
-                otp, 
-                "LOGIN",
-                ""
-            )).start()
-            
+            # NOTE: OTP already generated and sent in auth_routes.py (line 289)
+            # Removed duplicate generation - was causing wrong OTP in database
             return {
                 'type': 'OTP',
                 'message': 'Email OTP sent for verification.',
