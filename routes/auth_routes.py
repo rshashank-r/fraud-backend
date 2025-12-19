@@ -358,39 +358,71 @@ def verify_totp_login():
 @auth_bp.route('/verify-email-otp-login', methods=['POST'])
 @limiter.limit("5 per minute") # Max 5 attempts per minute
 def verify_email_otp_login():
-    data = request.json
-    real_ip = GeoService.get_real_ip()
-    email = data.get('email')
-    otp_input = data.get('otp')
+    try:
+        print("📧 OTP Verification - Request received")
+        data = request.json
+        real_ip = GeoService.get_real_ip()
+        email = data.get('email')
+        otp_input = data.get('otp')
+        
+        print(f"   Email: {email}")
+        print(f"   OTP: {otp_input}")
 
-    user = User.query.filter_by(email=email).first()
-    if not user: return jsonify({"error": "User not found"}), 404
+        # Validate input
+        if not email or not otp_input:
+            print("❌ Missing email or OTP")
+            return jsonify({"error": "Email and OTP are required"}), 400
 
-    # Verify Logic
-    if not user.email_otp or user.email_otp != otp_input:
-        app_instance = current_app._get_current_object()
-        SecuritySuite.log_action(user.id, "LOGIN_FAILED", "Invalid Email OTP", real_ip)
-        Thread(target=send_security_alert, args=(app_instance, user.email, "Failed Email OTP Attempt", real_ip)).start()
-        return jsonify({"error": "Invalid or Expired OTP"}), 401
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            print(f"❌ User not found: {email}")
+            return jsonify({"error": "User not found"}), 404
+
+        print(f"✅ User found: {user.id}")
+        print(f"   Stored OTP: {user.email_otp}")
+        print(f"   Input OTP: {otp_input}")
+        print(f"   OTP Expiry: {user.email_otp_expiry}")
+
+        # Verify Logic
+        if not user.email_otp or user.email_otp != otp_input:
+            print("❌ Invalid OTP")
+            app_instance = current_app._get_current_object()
+            SecuritySuite.log_action(user.id, "LOGIN_FAILED", "Invalid Email OTP", real_ip)
+            Thread(target=send_security_alert, args=(app_instance, user.email, "Failed Email OTP Attempt", real_ip)).start()
+            return jsonify({"error": "Invalid or Expired OTP"}), 401
+        
+        if user.email_otp_expiry < datetime.utcnow():
+            print("❌ OTP Expired")
+            return jsonify({"error": "OTP Expired"}), 401
+
+        print("✅ OTP Valid - Proceeding with login")
+
+        # Clear OTP
+        user.email_otp = None
+        db.session.commit()
+        print("✅ OTP cleared from database")
+
+        # Success
+        print("🔑 Calling finalize_login_success...")
+        response_data = finalize_login_success(user, real_ip)
+        print(f"✅ finalize_login_success completed")
+        
+        # DEBUG: Log what we're returning
+        print(f"🔑 Email OTP Verification - Returning response:")
+        print(f"   access_token: {response_data.get('access_token')[:20]}..." if response_data.get('access_token') else "   access_token: None")
+        print(f"   token: {response_data.get('token')[:20]}..." if response_data.get('token') else "   token: None")
+        print(f"   role: {response_data.get('role')}")
+        print(f"   Full response keys: {list(response_data.keys())}")
+        
+        return jsonify(response_data), 200
     
-    if user.email_otp_expiry < datetime.utcnow():
-        return jsonify({"error": "OTP Expired"}), 401
+    except Exception as e:
+        print(f"❌ CRITICAL ERROR in verify_email_otp_login: {str(e)}")
+        print(f"   Error type: {type(e).__name__}")
+        import traceback
+        print(f"   Traceback: {traceback.format_exc()}")
+        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
-    # Clear OTP
-    user.email_otp = None
-    db.session.commit()
-
-    # Success
-    response_data = finalize_login_success(user, real_ip)
-    
-    # DEBUG: Log what we're returning
-    print(f"🔑 Email OTP Verification - Returning response:")
-    print(f"   access_token: {response_data.get('access_token')[:20]}..." if response_data.get('access_token') else "   access_token: None")
-    print(f"   token: {response_data.get('token')[:20]}..." if response_data.get('token') else "   token: None")
-    print(f"   role: {response_data.get('role')}")
-    print(f"   Full response keys: {list(response_data.keys())}")
-    
-    return jsonify(response_data), 200
 
 # ==========================================
 # 4. RESEND EMAIL OTP
