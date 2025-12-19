@@ -27,3 +27,7 @@ maintenance.py
 test_add_card.py
 test_behavior_graph.py
 
+test_password.py
+test_risk_auth.py
+test.py
+database_migration.py

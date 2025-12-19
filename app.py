@@ -1,4 +1,6 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
 from flask import Flask, jsonify
 from flask_cors import CORS
 from config import Config
@@ -19,6 +21,8 @@ from routes.beneficiaries import beneficiary_bp
 from routes.user_routes import user_bp
 from routes.accounts import accounts_bp
 from routes.alerts import alerts_bp
+from routes.admin_security_routes import admin_security_bp
+
 
 def create_app():
     app = Flask(__name__)
@@ -87,6 +91,8 @@ def create_app():
     app.register_blueprint(user_bp, url_prefix='/api/users')
     app.register_blueprint(accounts_bp, url_prefix='/api/accounts')
     app.register_blueprint(alerts_bp, url_prefix='/api/alerts')
+    app.register_blueprint(admin_security_bp, url_prefix='/api/admin')
+
 
 
     # ✅ ADDITIONAL FIX: Add global OPTIONS handler
