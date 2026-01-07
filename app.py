@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 from flask import Flask, jsonify
 from flask_cors import CORS
-from config import Config
+from config import Config, get_config
 from extensions import db, limiter, mail, jwt
 from models import TokenBlocklist
 from flask_migrate import Migrate
@@ -24,10 +24,30 @@ from routes.alerts import alerts_bp
 from routes.admin_security_routes import admin_security_bp
 from routes.admin_analytics import admin_analytics_bp
 
+# Professional Error Handling & Logging
+from utils.errors import APIError
+from utils.logger import setup_logging, log_request_info
 
-def create_app():
+
+def create_app(config_name=None):
+    """
+    Application factory pattern.
+    
+    Args:
+        config_name: Configuration environment name (development, production, testing, staging)
+    
+    Returns:
+        Configured Flask application instance
+    """
     app = Flask(__name__)
-    app.config.from_object(Config)
+    
+    # Load configuration based on environment
+    config_name = config_name or os.environ.get('FLASK_ENV', 'production')
+    config_class = Config.get_config(config_name)
+    app.config.from_object(config_class)
+    
+    # Initialize configuration
+    config_class.init_app(app)
 
     # --- FIXED CORS CONFIGURATION ---
     allowed_origins = [
@@ -74,6 +94,11 @@ def create_app():
     jwt.init_app(app)
     migrate = Migrate(app, db)
 
+    # Setup Professional Logging
+    setup_logging(app)
+    log_request_info(app)
+    app.logger.info("FraudGuard API starting up...")
+
     # Token Blocklist Check
     @jwt.token_in_blocklist_loader
     def check_if_token_revoked(jwt_header, jwt_payload):
@@ -117,22 +142,76 @@ def create_app():
         response.headers['Permissions-Policy'] = 'geolocation=(self), microphone=(), camera=()'
         return response
 
-    # Error Handlers
+    # Professional Error Handlers
+    @app.errorhandler(APIError)
+    def handle_api_error(error):
+        """Handle all custom API errors."""
+        app.logger.error(f"API Error: {error.message}", extra={'error_type': error.__class__.__name__})
+        response = jsonify(error.to_dict())
+        response.status_code = error.status_code
+        return response
+
     @app.errorhandler(429)
     def ratelimit_handler(e):
-        return jsonify(error="ratelimit exceeded", message=str(e.description)), 429
+        app.logger.warning(f"Rate limit exceeded: {str(e.description)}")
+        return jsonify({
+            'error': 'RateLimitError',
+            'message': 'Too many requests. Please slow down.',
+            'details': str(e.description)
+        }), 429
 
     @app.errorhandler(500)
     def internal_error(e):
-        return jsonify(error="Internal Server Error"), 500
+        app.logger.exception("Internal server error occurred")
+        return jsonify({
+            'error': 'InternalServerError',
+            'message': 'An unexpected error occurred. Please try again later.'
+        }), 500
+
+    @app.errorhandler(404)
+    def not_found_error(e):
+        return jsonify({
+            'error': 'NotFoundError',
+            'message': 'The requested resource was not found.'
+        }), 404
+
+    @app.errorhandler(400)
+    def bad_request_error(e):
+        return jsonify({
+            'error': 'ValidationError',
+            'message': 'Invalid request data.',
+            'details': str(e)
+        }), 400
 
     @app.route('/')
     def home():
+        app.logger.info("Health check endpoint accessed")
         return jsonify({
-            "message": "FraudGuard API is Running!",
-            "status": "Live",
+            "service": "FraudGuard API",
+            "status": "operational",
+            "version": "2.0.0",
+            "environment": app.config.get('ENV', 'production'),
             "cors_origins": allowed_origins
         }), 200
+
+    @app.route('/health')
+    def health_check():
+        """Detailed health check endpoint."""
+        try:
+            # Test database connection
+            db.session.execute('SELECT 1')
+            db_status = "healthy"
+        except Exception as e:
+            db_status = "unhealthy"
+            app.logger.error(f"Database health check failed: {str(e)}")
+        
+        return jsonify({
+            "status": "healthy" if db_status == "healthy" else "degraded",
+            "checks": {
+                "database": db_status,
+                "api": "healthy"
+            }
+        }), 200 if db_status == "healthy" else 503
 
     # Initialize DB
     with app.app_context():
