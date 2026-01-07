@@ -83,6 +83,57 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:create_app()
 
 Server runs on `http://localhost:5000`
 
+## 🏗️ System Architecture
+```mermaid
+graph TD
+    Client[Web Client]
+    
+    subgraph LoadBalancer [Nginx/Gunicorn]
+        LB[Request Handling]
+    end
+
+    subgraph App [Flask Application]
+        Auth[Auth Service]
+        Tx[Transaction Service]
+        Admin[Admin Service]
+        
+        subgraph Security [Security Suite]
+            RBA[Risk Authenticator]
+            FP[Fingerprinting]
+            Bot[Bot Detection]
+        end
+        
+        subgraph Engine [Fraud Engine]
+            XGB[XGBoost Model]
+            Rules[Rule Engine]
+            Scoring[Risk Scorer]
+        end
+    end
+    
+    subgraph Data [Data Persistence]
+        DB[(PostgreSQL)]
+        Redis[(Redis Cache)]
+    end
+    
+    subgraph External [External Services]
+        Brevo[Brevo Email]
+        Geo[GeoLite2 DB]
+    end
+
+    Client --> |REST API| LB
+    LB --> App
+    
+    Auth --> Security
+    Tx --> Engine
+    
+    Engine --> XGB
+    Engine --> Rules
+    
+    App --> DB
+    App --> Redis
+    App --> External
+```
+
 ## 📂 Project Structure
 
 ```
