@@ -28,6 +28,9 @@ from routes.admin_analytics import admin_analytics_bp
 from utils.errors import APIError
 from utils.logger import setup_logging, log_request_info
 
+# API Documentation
+from flasgger import Swagger
+
 
 def create_app(config_name=None):
     """
@@ -99,6 +102,48 @@ def create_app(config_name=None):
     log_request_info(app)
     app.logger.info("FraudGuard API starting up...")
 
+    # Setup API Documentation (Swagger)
+    swagger_config = {
+        "headers": [],
+        "specs": [{
+            "endpoint": 'apispec',
+            "route": '/api/docs/apispec.json',
+            "rule_filter": lambda rule: True,
+            "model_filter": lambda tag: True,
+        }],
+        "static_url_path": "/flasgger_static",
+        "swagger_ui": True,
+        "specs_route": "/api/docs",
+        "title": "FraudGuard API Documentation",
+        "version": "2.0.0",
+        "description": "AI-Powered Fraud Detection & Prevention System",
+        "termsOfService": "",
+        "contact": {
+            "name": "FraudGuard API Support",
+            "email": "support@fraudguard.com"
+        }
+    }
+    
+    swagger_template = {
+        "securityDefinitions": {
+            "Bearer": {
+                "type": "apiKey",
+                "name": "Authorization",
+                "in": "header",
+                "description": "JWT Authorization header using the Bearer scheme. Example: 'Bearer {token}'"
+            }
+        },
+        "security": [{"Bearer": []}],
+        "info": {
+            "title": "FraudGuard API",
+            "description": "Comprehensive fraud detection and prevention API with risk-based authentication",
+            "version": "2.0.0"
+        }
+    }
+    
+    Swagger(app, config=swagger_config, template=swagger_template)
+    app.logger.info("API Documentation initialized at /api/docs")
+
     # Token Blocklist Check
     @jwt.token_in_blocklist_loader
     def check_if_token_revoked(jwt_header, jwt_payload):
@@ -131,15 +176,51 @@ def create_app(config_name=None):
             response = app.make_default_options_response()
             return response
 
-    # Security Headers (no external dependencies)
+    # Enhanced Security Headers
     @app.after_request
     def add_security_headers(response):
-        """Add security headers to all responses"""
+        """Add comprehensive security headers to all responses."""
+        # Content Security Policy
+        csp = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "  # Allow inline scripts for Swagger UI
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "img-src 'self' data: https:; "
+            "font-src 'self' data: https://fonts.gstatic.com; "
+            "connect-src 'self' https://fraud-backend.onrender.com https://fraud-backend-y9xq.onrender.com; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self';"
+        )
+        response.headers['Content-Security-Policy'] = csp
+        
+        # Strict Transport Security (HSTS) - Force HTTPS
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload'
+        
+        # Prevent clickjacking
         response.headers['X-Frame-Options'] = 'DENY'
+        
+        # Prevent MIME type sniffing
         response.headers['X-Content-Type-Options'] = 'nosniff'
+        
+        # XSS Protection
         response.headers['X-XSS-Protection'] = '1; mode=block'
+        
+        # Referrer Policy
         response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-        response.headers['Permissions-Policy'] = 'geolocation=(self), microphone=(), camera=()'
+        
+        # Permissions Policy (formerly Feature Policy)
+        response.headers['Permissions-Policy'] = (
+            'accelerometer=(), '
+            'camera=(), '
+            'geolocation=(self), '
+            'gyroscope=(), '
+            'magnetometer=(), '
+            'microphone=(), '
+            'payment=(), '
+            'usb=()'
+        )
+        
         return response
 
     # Professional Error Handlers
