@@ -383,9 +383,15 @@ def verify_email_otp_login():
         print(f"   Input OTP: {otp_input}")
         print(f"   OTP Expiry: {user.email_otp_expiry}")
 
+        # FIXED: Convert both to strings for consistent comparison
+        stored_otp = str(user.email_otp).strip() if user.email_otp else None
+        input_otp = str(otp_input).strip() if otp_input else None
+        
+        print(f"   Comparing: stored='{stored_otp}' vs input='{input_otp}'")
+
         # Verify Logic
-        if not user.email_otp or user.email_otp != otp_input:
-            print("❌ Invalid OTP")
+        if not stored_otp or stored_otp != input_otp:
+            print(f"❌ OTP Mismatch: stored='{stored_otp}' != input='{input_otp}'")
             app_instance = current_app._get_current_object()
             SecuritySuite.log_action(user.id, "LOGIN_FAILED", "Invalid Email OTP", real_ip)
             Thread(target=send_security_alert, args=(app_instance, user.email, "Failed Email OTP Attempt", real_ip)).start()
