@@ -46,7 +46,7 @@ def create_app(config_name=None):
     
     # Load configuration based on environment
     config_name = config_name or os.environ.get('FLASK_ENV', 'production')
-    config_class = Config.get_config(config_name)
+    config_class = get_config(config_name)  # Fixed: use module function, not Config.get_config
     app.config.from_object(config_class)
     
     # Initialize configuration
