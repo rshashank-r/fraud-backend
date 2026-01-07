@@ -3,10 +3,37 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from models import User, Transaction, AuditLog, Notification
 from extensions import db
 from datetime import datetime, timedelta
-from sqlalchemy import func, extract
+from sqlalchemy import func, extract, case
 import random
+from functools import wraps
+import time
 
 admin_analytics_bp = Blueprint('admin_analytics', __name__)
+
+# Simple in-memory cache
+_cache = {}
+_cache_timestamps = {}
+
+def cache_result(ttl_seconds=300):
+    """Decorator to cache function results for specified TTL"""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            cache_key = f"{func.__name__}"
+            current_time = time.time()
+            
+            # Check if cache is valid
+            if cache_key in _cache and cache_key in _cache_timestamps:
+                if current_time - _cache_timestamps[cache_key] < ttl_seconds:
+                    return _cache[cache_key]
+            
+            # Execute function and cache result
+            result = func(*args, **kwargs)
+            _cache[cache_key] = result
+            _cache_timestamps[cache_key] = current_time
+            return result
+        return wrapper
+    return decorator
 
 
 def require_admin():
@@ -20,6 +47,7 @@ def require_admin():
 
 @admin_analytics_bp.route('/risk-distribution', methods=['GET'])
 @jwt_required()
+@cache_result(ttl_seconds=300)  # Cache for 5 minutes
 def get_risk_distribution():
     """Get distribution of transactions by risk level"""
     admin_check = require_admin()
@@ -27,29 +55,21 @@ def get_risk_distribution():
         return admin_check
     
     try:
-        # Get transactions from last 30 days
+        # Get transactions from last 30 days - OPTIMIZED: Single query with CASE
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
         
-        total_tx = Transaction.query.filter(
+        # Use a single aggregated query instead of 4 separate queries
+        result = db.session.query(
+            func.sum(case((Transaction.risk_score < 0.3, 1), else_=0)).label('low_risk'),
+            func.sum(case(((Transaction.risk_score >= 0.3) & (Transaction.risk_score < 0.7), 1), else_=0)).label('medium_risk'),
+            func.sum(case((Transaction.risk_score >= 0.7, 1), else_=0)).label('high_risk')
+        ).filter(
             Transaction.timestamp >= thirty_days_ago
-        ).count()
+        ).first()
         
-        # Distribution by risk score ranges
-        low_risk = Transaction.query.filter(
-            Transaction.timestamp >= thirty_days_ago,
-            Transaction.risk_score < 0.3
-        ).count()
-        
-        medium_risk = Transaction.query.filter(
-            Transaction.timestamp >= thirty_days_ago,
-            Transaction.risk_score >= 0.3,
-            Transaction.risk_score < 0.7
-        ).count()
-        
-        high_risk = Transaction.query.filter(
-            Transaction.timestamp >= thirty_days_ago,
-            Transaction.risk_score >= 0.7
-        ).count()
+        low_risk = result.low_risk or 0
+        medium_risk = result.medium_risk or 0
+        high_risk = result.high_risk or 0
         
         return jsonify([
             {"name": "Low Risk", "value": low_risk, "color": "#10b981"},
@@ -64,6 +84,7 @@ def get_risk_distribution():
 
 @admin_analytics_bp.route('/alerts-timeline', methods=['GET'])
 @jwt_required()
+@cache_result(ttl_seconds=300)  # Cache for 5 minutes
 def get_alerts_timeline():
     """Get security alerts timeline for last 7 days"""
     admin_check = require_admin()
@@ -101,6 +122,7 @@ def get_alerts_timeline():
 
 @admin_analytics_bp.route('/transaction-volume', methods=['GET'])
 @jwt_required()
+@cache_result(ttl_seconds=300)  # Cache for 5 minutes
 def get_transaction_volume():
     """Get transaction volume over last 30 days"""
     admin_check = require_admin()
@@ -110,13 +132,16 @@ def get_transaction_volume():
     try:
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
         
+        # OPTIMIZED: Added limit to prevent excessive data
         daily_volume = db.session.query(
             func.date(Transaction.timestamp).label('date'),
             func.count(Transaction.id).label('count'),
             func.sum(Transaction.amount).label('total')
         ).filter(
             Transaction.timestamp >= thirty_days_ago
-        ).group_by(func.date(Transaction.timestamp)).all()
+        ).group_by(func.date(Transaction.timestamp))\
+         .order_by(func.date(Transaction.timestamp).desc())\
+         .limit(30).all()  # Limit to 30 days max
         
         result = []
         for vol in daily_volume:
@@ -135,6 +160,7 @@ def get_transaction_volume():
 
 @admin_analytics_bp.route('/fraud-categories', methods=['GET'])
 @jwt_required()
+@cache_result(ttl_seconds=300)  # Cache for 5 minutes
 def get_fraud_categories():
     """Get distribution of fraud by category"""
     admin_check = require_admin()
@@ -179,6 +205,7 @@ def get_fraud_categories():
 
 @admin_analytics_bp.route('/geo-distribution', methods=['GET'])
 @jwt_required()
+@cache_result(ttl_seconds=300)  # Cache for 5 minutes
 def get_geo_distribution():
     """Get geographic distribution of transactions"""
     admin_check = require_admin()

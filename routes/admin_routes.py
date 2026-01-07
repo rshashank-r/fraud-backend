@@ -22,9 +22,16 @@ def check_admin():
 def get_stats():
     if not check_admin(): return jsonify({"error": "Unauthorized"}), 403
     
-    total_users = User.query.count()
-    total_tx = Transaction.query.count()
-    blocked_tx = Transaction.query.filter_by(status='FAILED').count()
+    # OPTIMIZED: Single aggregated query instead of 3 separate queries
+    stats = db.session.query(
+        func.count(func.distinct(User.id)).label('total_users'),
+        func.count(Transaction.id).label('total_tx'),
+        func.sum(case((Transaction.status == 'FAILED', 1), else_=0)).label('blocked_tx')
+    ).outerjoin(Transaction, User.id == Transaction.user_id).first()
+    
+    total_users = stats.total_users or 0
+    total_tx = stats.total_tx or 0
+    blocked_tx = stats.blocked_tx or 0
     fraud_rate = (blocked_tx / total_tx * 100) if total_tx > 0 else 0
     
     return jsonify({
