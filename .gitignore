@@ -2,6 +2,7 @@ venv/
 __pycache__/
 instance/
 .env
+
 .DS_Store
 test_api_full.py
 *.pyc
@@ -31,3 +32,4 @@ test_password.py
 test_risk_auth.py
 test.py
 database_migration.py
+add_transaction_timestamp_index.py
