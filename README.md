@@ -1,3 +1,12 @@
+---
+title: Fraud Backend
+emoji: 🛡️
+colorFrom: blue
+colorTo: red
+sdk: docker
+pinned: false
+app_port: 7860
+---
 # FraudGuard Backend 🛡️
 
 A robust Flask-based backend for the FraudGuard real-time transaction monitoring system. Features an advanced Fraud Engine with AI capabilities, risk-based authentication, enhanced device security, and comprehensive transaction management.

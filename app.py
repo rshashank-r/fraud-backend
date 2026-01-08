@@ -280,7 +280,8 @@ def create_app(config_name=None):
         """Detailed health check endpoint."""
         try:
             # Test database connection
-            db.session.execute('SELECT 1')
+            from sqlalchemy import text
+            db.session.execute(text('SELECT 1'))
             db_status = "healthy"
         except Exception as e:
             db_status = "unhealthy"
@@ -317,4 +318,4 @@ if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not os.environ.get('WERKZEUG
                 print(f"⚠️ Warning: Could not load Fraud Model: {e}")
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 7860)))
