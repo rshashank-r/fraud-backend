@@ -141,6 +141,24 @@ def login_step_one():
     if user.is_locked:
         return jsonify({"error": "Account Locked"}), 403
 
+    # --- SINGLE SESSION ENFORCEMENT ---
+    # Check if user has an active session (Logged in < 5 mins ago AND no Logout since)
+    last_login = AuditLog.query.filter_by(user_id=user.id, action='LOGIN_SUCCESS').order_by(AuditLog.timestamp.desc()).first()
+    last_logout = AuditLog.query.filter_by(user_id=user.id, action='LOGOUT').order_by(AuditLog.timestamp.desc()).first()
+
+    if last_login and last_login.timestamp > (datetime.utcnow() - timedelta(minutes=5)):
+        # If no logout OR logout was BEFORE the last login -> SESSION IS ACTIVE
+        if not last_logout or last_logout.timestamp < last_login.timestamp:
+            print(f"🚫 BLOCKED: Concurrent login attempt for {user.email}")
+            
+            # Send Alert
+            Thread(target=send_security_alert, args=(app_instance, user.email, "Blocked Concurrent Login", real_ip)).start()
+            
+            return jsonify({
+                "error": "Active session detected",
+                "message": "You are already logged in on another device. Please logout from that device or wait 5 minutes."
+            }), 403
+
     # Check Password Breach
     if SecurityService.check_password_breach(password) > 0:
         user.is_breached = True
@@ -583,7 +601,13 @@ def reset_password():
 @jwt_required()
 def logout():
     jti = get_jwt()["jti"]
+    user_id = get_jwt_identity()
     db.session.add(TokenBlocklist(jti=jti))
+    
+    # Log explicit LOGOUT to release the session lock
+    real_ip = GeoService.get_real_ip()
+    SecuritySuite.log_action(user_id, "LOGOUT", "User logged out manually", real_ip)
+    
     db.session.commit()
     return jsonify({"message": "Successfully logged out"}), 200
 

@@ -1,11 +1,13 @@
 from flask import Blueprint, jsonify, request, make_response
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import User, Transaction, FraudRule, IPWhitelist, Dispute, Notification, AuditLog, db, UnlockRequest
+from models import User, Transaction, FraudRule, IPWhitelist, Dispute, Notification, AuditLog, db, UnlockRequest, FraudAlert, SupportTicket
 from sqlalchemy import func, case
 from sqlalchemy.orm import joinedload
 import csv
 import io
 from datetime import datetime, timedelta
+from services.email_service import send_admin_action_alert # Added Import
+
 
 
 admin_bp = Blueprint('admin', __name__)
@@ -29,16 +31,36 @@ def get_stats():
         func.sum(case((Transaction.status == 'FAILED', 1), else_=0)).label('blocked_tx')
     ).outerjoin(Transaction, User.id == Transaction.user_id).first()
     
+    # Additional Metrics
     total_users = stats.total_users or 0
     total_tx = stats.total_tx or 0
     blocked_tx = stats.blocked_tx or 0
     fraud_rate = (blocked_tx / total_tx * 100) if total_tx > 0 else 0
     
+    # 1. Alert Stats
+    today = datetime.utcnow().date()
+    total_alerts = FraudAlert.query.count()
+    alerts_today = FraudAlert.query.filter(func.date(FraudAlert.created_at) == today).count()
+    
+    # 2. Key Risk Indicators
+    locked_accounts = User.query.filter_by(is_locked=True).count()
+    high_risk_users = User.query.filter(User.trust_score < 50).count()
+    
+    # 3. Fraud Rings (Unique IPs with > 2 users)
+    suspicious_ips = db.session.query(Transaction.ip_address)\
+        .group_by(Transaction.ip_address)\
+        .having(func.count(func.distinct(Transaction.user_id)) >= 2).count()
+    
     return jsonify({
         "total_users": total_users,
         "total_transactions": total_tx,
         "blocked_transactions": blocked_tx,
-        "fraud_rate": round(fraud_rate, 2)
+        "fraud_rate": round(fraud_rate, 2),
+        "total_fraud_alerts": total_alerts,
+        "fraud_alerts_today": alerts_today,
+        "locked_accounts": locked_accounts,
+        "high_risk_users": high_risk_users,
+        "fraud_rings_detected": suspicious_ips
     }), 200
 
 # --- 2. TRANSACTION MANAGEMENT ---
@@ -238,6 +260,11 @@ def resolve_unlock_request():
         req.status = 'APPROVED'
         req.user.is_locked = False
         req.user.trust_score = 50 
+        
+        # 📧 SEND NOTIFICATION
+        app_instance = current_app._get_current_object()
+        send_admin_action_alert(app_instance, req.user.email, 'ACCOUNT_UNLOCKED', "Appeal Approved")
+        
     else:
         req.status = 'REJECTED'
         
@@ -447,6 +474,12 @@ def user_action():
         f"Admin performed {action} on user {email}", 
         request.remote_addr
     )
+
+    # 📧 SEND NOTIFICATION
+    app_instance = current_app._get_current_object()
+    action_type = 'ACCOUNT_LOCKED' if action == 'LOCK' else 'ACCOUNT_UNLOCKED'
+    reason = "Administrative Decision"
+    send_admin_action_alert(app_instance, user.email, action_type, reason)
     
     return jsonify({"message": f"User {action}ED"}), 200
 
@@ -479,3 +512,79 @@ def scan_fraud_rings():
         })
         
     return jsonify({"fraud_rings": rings, "total_rings": len(rings)}), 200
+
+# --- 12. DATA FOR ALERTS & LOGS PAGE ---
+
+@admin_bp.route('/suspicious-transactions', methods=['GET'])
+@jwt_required()
+def get_suspicious_transactions():
+    """Get transactions with high risk scores"""
+    if not check_admin(): return jsonify({"error": "Unauthorized"}), 403
+    
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int)
+    
+    txs = Transaction.query.filter(Transaction.risk_score > 0.7)\
+        .order_by(Transaction.timestamp.desc())\
+        .paginate(page=page, per_page=per_page, error_out=False)
+    
+    return jsonify({
+        "transactions": [{
+            "id": t.id,
+            "user": t.user.email,
+            "amount": t.amount,
+            "risk_score": t.risk_score,
+            "timestamp": t.timestamp.isoformat()
+        } for t in txs.items],
+        "pages": txs.pages,
+        "total": txs.total
+    }), 200
+
+
+@admin_bp.route('/fraud-alerts', methods=['GET'])
+@jwt_required()
+def get_fraud_alerts():
+    """Get all fraud alerts"""
+    if not check_admin(): return jsonify({"error": "Unauthorized"}), 403
+    
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int)
+    
+    alerts = FraudAlert.query.order_by(FraudAlert.created_at.desc())\
+        .paginate(page=page, per_page=per_page, error_out=False)
+    
+    return jsonify({
+        "alerts": [{
+            "id": a.id,
+            "level": a.alert_level,
+            "description": a.description,
+            "created_at": a.created_at.isoformat(),
+            "is_resolved": a.is_resolved
+        } for a in alerts.items],
+        "pages": alerts.pages,
+        "total": alerts.total
+    }), 200
+
+@admin_bp.route('/support-tickets/all', methods=['GET'])
+@jwt_required()
+def get_all_support_tickets():
+    """Get all support tickets"""
+    if not check_admin(): return jsonify({"error": "Unauthorized"}), 403
+    
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int)
+    
+    tickets = SupportTicket.query.order_by(SupportTicket.created_at.desc())\
+        .paginate(page=page, per_page=per_page, error_out=False)
+    
+    return jsonify({
+        "tickets": [{
+            "id": t.id,
+            "user": t.user.email,
+            "subject": t.subject,
+            "status": t.status,
+            "created_at": t.created_at.isoformat()
+        } for t in tickets.items],
+        "pages": tickets.pages,
+        "total": tickets.total
+    }), 200

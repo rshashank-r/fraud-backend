@@ -222,4 +222,4 @@ class CaptchaChallenge(db.Model):
     timestamp = db.Column(db.String(20), nullable=False)
     expiry = db.Column(db.DateTime, nullable=False)
     is_used = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)    

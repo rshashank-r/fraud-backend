@@ -46,7 +46,8 @@ class CaptchaService:
         return {
             "challenge_id": challenge_id,
             "question": f"What is {num1} + {num2}?",
-            "timestamp": timestamp
+            "timestamp": timestamp,
+            "correct_answer": answer # Added for frontend hint ("i" button)
         }
     
     @staticmethod

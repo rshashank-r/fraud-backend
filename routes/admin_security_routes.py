@@ -5,7 +5,8 @@ New endpoints for managing security features
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from models import User, db
+from models import User, db, Device, Transaction
+from sqlalchemy import func, desc
 from services.security_events import SecurityEventLogger, SecurityEvent
 from services.ip_reputation import IPReputationService, IPReputation
 from services.honeypot_service import HoneypotService
@@ -271,4 +272,62 @@ def get_dashboard_metrics():
         'low_reputation_ips': low_rep_ips,
         'locked_users': locked_users,
         'honeypot_attacks_total': honeypot_attacks
+    }), 200
+
+# ===== INTELLIGENCE ROUTES =====
+
+@admin_security_bp.route('/intelligence/high-risk-users', methods=['GET'])
+@jwt_required()
+def get_high_risk_users():
+    """Get high risk users based on trust score"""
+    admin_check = require_admin()
+    if admin_check: return admin_check
+    
+    users = User.query.filter(User.trust_score < 50).order_by(User.trust_score.asc()).limit(10).all()
+    
+    return jsonify([{
+        "id": u.id,
+        "email": u.email,
+        "trust_score": u.trust_score,
+        "is_locked": u.is_locked,
+        "role": u.role
+    } for u in users]), 200
+
+@admin_security_bp.route('/intelligence/ip-analysis', methods=['GET'])
+@jwt_required()
+def ip_analysis():
+    """Get IP analysis statistics"""
+    admin_check = require_admin()
+    if admin_check: return admin_check
+    
+    # Top suspicious IPs from transactions
+    suspicious_ips = db.session.query(
+        Transaction.ip_address,
+        func.count(Transaction.id).label('tx_count'),
+        func.sum(Transaction.amount).label('total_amount')
+    ).group_by(Transaction.ip_address).order_by(desc('tx_count')).limit(10).all()
+    
+    return jsonify([{
+        "ip": ip.ip_address,
+        "count": ip.tx_count,
+        "volume": ip.total_amount
+    } for ip in suspicious_ips]), 200
+
+@admin_security_bp.route('/intelligence/device-analysis', methods=['GET'])
+@jwt_required()
+def device_analysis():
+    """Get device analysis statistics"""
+    admin_check = require_admin()
+    if admin_check: return admin_check
+    
+    # Device trust distribution
+    total_devices = Device.query.count()
+    trusted = Device.query.filter_by(is_trusted=True).count()
+    untrusted = total_devices - trusted
+    
+    return jsonify({
+        "total": total_devices,
+        "trusted": trusted,
+        "untrusted": untrusted,
+        "ratio": round(trusted/total_devices, 2) if total_devices > 0 else 0
     }), 200

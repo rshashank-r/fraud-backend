@@ -318,3 +318,61 @@ def send_suspicious_device_alert(app_instance, recipient, device_type, ip_addres
     return success
 
 
+
+# --- 7. ADMIN ACTION ALERT ---
+def send_admin_action_alert(app_instance, recipient, action_type, reason="Security Policy Enforcement", details=None):
+    """
+    Sends an alert when an admin takes action on an account (Block/Unlock/Rule Match).
+    action_type: 'ACCOUNT_LOCKED' | 'ACCOUNT_UNLOCKED' | 'RULE_VIOLATION'
+    """
+    subject = ""
+    title = ""
+    body = ""
+    color = ""
+
+    if action_type == 'ACCOUNT_LOCKED':
+        subject = "⛔ Account Security Notice: Access Paused"
+        title = "Account Locked"
+        color = "#e53e3e" # Red
+        body = f"""
+        <div style='background-color: {color}; color: white; padding: 15px; border-radius: 6px; text-align: center; margin-bottom: 25px;'>
+            <b style='font-size: 18px;'>Access Temporarily Suspended</b>
+        </div>
+        <p>Your account has been locked by our security team.</p>
+        <p><b>Reason:</b> {reason}</p>
+        <p>If you believe this is a mistake, please reply to this email or contact support.</p>
+        """
+    elif action_type == 'ACCOUNT_UNLOCKED':
+        subject = "✅ Account Restored: Access Granted"
+        title = "Account Unlocked"
+        color = "#2f855a" # Green
+        body = f"""
+        <div style='background-color: {color}; color: white; padding: 15px; border-radius: 6px; text-align: center; margin-bottom: 25px;'>
+            <b style='font-size: 18px;'>Access Restored</b>
+        </div>
+        <p>Good news! Your account has been reviewed and unlocked.</p>
+        <p>You can now log in and transact normally.</p>
+        """
+    elif action_type == 'RULE_VIOLATION':
+        subject = "⚠️ Security Alert: Policy Violation"
+        title = "Security Policy Alert"
+        color = "#dd6b20" # Orange
+        body = f"""
+        <div style='background-color: {color}; color: white; padding: 15px; border-radius: 6px; text-align: center; margin-bottom: 25px;'>
+            <b style='font-size: 18px;'>Policy Alert</b>
+        </div>
+        <p>An activity on your account triggered a security rule.</p>
+        <p><b>Rule:</b> {reason}</p>
+        <p>Please review your recent activity.</p>
+        """
+    
+    final_details = {
+        "Action": action_type.replace('_', ' ').title(),
+        "Date": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        "Support Ref": f"REF-{random.randint(1000, 9999)}"
+    }
+    if details:
+        final_details.update(details)
+
+    html_content = create_html_email(title, body, final_details)
+    send_brevo_email(app_instance, recipient, subject, html_content)

@@ -72,9 +72,9 @@ def get_risk_distribution():
         high_risk = result.high_risk or 0
         
         return jsonify([
-            {"name": "Low Risk", "value": low_risk, "color": "#10b981"},
-            {"name": "Medium Risk", "value": medium_risk, "color": "#f59e0b"},
-            {"name": "High Risk", "value": high_risk, "color": "#ef4444"}
+            {"range": "Low", "count": low_risk, "color": "#10b981"},
+            {"range": "Medium", "count": medium_risk, "color": "#f59e0b"},
+            {"range": "High", "count": high_risk, "color": "#ef4444"}
         ]), 200
         
     except Exception as e:
@@ -110,7 +110,7 @@ def get_alerts_timeline():
             count = next((a.count for a in daily_alerts if str(a.date) == date), 0)
             result.append({
                 "date": date,
-                "alerts": count
+                "count": count
             })
         
         return jsonify(result), 200
@@ -176,7 +176,7 @@ def get_fraud_categories():
             func.count(Transaction.id).label('count')
         ).filter(
             Transaction.timestamp >= thirty_days_ago,
-            Transaction.status.in_(['FLAGGED', 'BLOCKED'])
+            Transaction.status.in_(['FLAGGED', 'BLOCKED', 'FAILED'])
         ).group_by(Transaction.transaction_type).all()
         
         result = []
@@ -217,17 +217,17 @@ def get_geo_distribution():
         
         # Get transactions with location data
         geo_data = db.session.query(
-            Transaction.location,
+            Transaction.location_name,
             func.count(Transaction.id).label('count')
         ).filter(
             Transaction.timestamp >= thirty_days_ago,
-            Transaction.location.isnot(None)
-        ).group_by(Transaction.location).all()
+            Transaction.location_name.isnot(None)
+        ).group_by(Transaction.location_name).all()
         
         result = []
         for geo in geo_data[:10]:  # Top 10 locations
             result.append({
-                "location": geo.location or "Unknown",
+                "location": geo.location_name or "Unknown",
                 "count": geo.count
             })
         
